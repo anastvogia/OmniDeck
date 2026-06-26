@@ -29,14 +29,30 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
 
     public void Initialize()
     {
-        _enumerator = new MMDeviceEnumerator();
-        _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        try
+        {
+            _enumerator = new MMDeviceEnumerator();
+            _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
 
-        // Subscribe to system audio device notifications so we can
-        // re-acquire the endpoint when the default device changes.
-        _enumerator.RegisterEndpointNotificationCallback(this);
+            // Subscribe to system audio device notifications so we can
+            // re-acquire the endpoint when the default device changes.
+            _enumerator.RegisterEndpointNotificationCallback(this);
 
-        RefreshSessionCache();
+            RefreshSessionCache();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AudioService] Initialization failed (no active playback device?): {ex.Message}");
+            // Re-register callback if enumerator was initialized successfully
+            if (_enumerator != null)
+            {
+                try
+                {
+                    _enumerator.RegisterEndpointNotificationCallback(this);
+                }
+                catch { }
+            }
+        }
     }
 
     public void RefreshSessionCache()

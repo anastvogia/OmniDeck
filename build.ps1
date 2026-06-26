@@ -40,7 +40,7 @@ dotnet publish $ProjectFile `
     --self-contained false `
     -o $MinimalDir `
     -p:PublishSingleFile=true `
-    -p:PublishReadyToRun=true `
+    -p:PublishReadyToRun=false `
     -p:IncludeNativeLibrariesForSelfExtract=true
 
 if ($LASTEXITCODE -eq 0) {
@@ -59,7 +59,7 @@ dotnet publish $ProjectFile `
     --self-contained true `
     -o $BundledDir `
     -p:PublishSingleFile=true `
-    -p:PublishReadyToRun=true `
+    -p:PublishReadyToRun=false `
     -p:IncludeNativeLibrariesForSelfExtract=true
 
 if ($LASTEXITCODE -eq 0) {

@@ -48,7 +48,7 @@ public partial class MainWindow : Window
         
         try
         {
-            var iconUri = new Uri("pack://application:,,,/Sliders;component/icon.ico", UriKind.Absolute);
+            var iconUri = new Uri("pack://application:,,,/icon.ico", UriKind.Absolute);
             var resourceStream = System.Windows.Application.GetResourceStream(iconUri);
             if (resourceStream != null)
             {

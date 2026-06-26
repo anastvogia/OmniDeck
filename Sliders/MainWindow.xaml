@@ -10,7 +10,7 @@
         SizeToContent="Width"
         ResizeMode="CanMinimize"
         WindowStyle="None"
-        Icon="pack://application:,,,/Sliders;component/icon.png"
+        Icon="icon.png"
         Background="{StaticResource BgDeepBrush}"
         WindowStartupLocation="CenterScreen">
 

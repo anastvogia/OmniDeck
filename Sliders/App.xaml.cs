@@ -19,11 +19,24 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Register global exception handlers to write logs and show a message box
+        AppDomain.CurrentDomain.UnhandledException += (s, args) => LogException(args.ExceptionObject as Exception, "AppDomain");
+        DispatcherUnhandledException += (s, args) => { LogException(args.Exception, "Dispatcher"); args.Handled = true; };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, args) => LogException(args.Exception, "TaskScheduler");
+
         base.OnStartup(e);
 
         // ── Single-instance guard ───────────────────────────────
-        const string mutexName = "Global\\Sliders_B8A3F1E0_SingleInstance";
-        _singleInstanceMutex = new Mutex(true, mutexName, out bool createdNew);
+        const string mutexName = "Local\\Sliders_B8A3F1E0_SingleInstance";
+        bool createdNew = true;
+        try
+        {
+            _singleInstanceMutex = new Mutex(true, mutexName, out createdNew);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[App] Mutex creation failed: {ex.Message}");
+        }
 
         if (!createdNew)
         {
@@ -68,6 +81,11 @@ public partial class App : System.Windows.Application
         {
             mainWindow.Show();
         }
+        else
+        {
+            // Force handle creation so WndProc hook is registered for single-instance restoration
+            new System.Windows.Interop.WindowInteropHelper(mainWindow).EnsureHandle();
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -81,8 +99,43 @@ public partial class App : System.Windows.Application
         }
 
         _serviceProvider?.Dispose();
-        _singleInstanceMutex?.ReleaseMutex();
+        try
+        {
+            _singleInstanceMutex?.ReleaseMutex();
+        }
+        catch { }
         _singleInstanceMutex?.Dispose();
         base.OnExit(e);
+    }
+
+    private void LogException(Exception? ex, string source)
+    {
+        if (ex == null) return;
+
+        try
+        {
+            string configDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sliders");
+            System.IO.Directory.CreateDirectory(configDir);
+            string logPath = System.IO.Path.Combine(configDir, "crash.txt");
+
+            string logText = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Source: {source}\nException: {ex.GetType().FullName}\nMessage: {ex.Message}\nStackTrace:\n{ex.StackTrace}\n";
+            if (ex.InnerException != null)
+            {
+                logText += $"InnerException: {ex.InnerException.GetType().FullName}\nMessage: {ex.InnerException.Message}\nStackTrace:\n{ex.InnerException.StackTrace}\n";
+            }
+            logText += new string('=', 60) + "\n\n";
+
+            System.IO.File.AppendAllText(logPath, logText);
+
+            System.Windows.MessageBox.Show(
+                $"Sliders encountered an unhandled exception ({source}) and must close.\n\nError: {ex.Message}\n\nDetails saved to: {logPath}",
+                "Sliders - Unhandled Exception",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
+        }
+        catch
+        {
+            // Fail-safe
+        }
     }
 }

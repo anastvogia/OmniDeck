@@ -17,7 +17,7 @@ internal static partial class NativeMethods
     // ── Single-instance support ─────────────────────────────────
 
     /// <summary>Registers a unique window message name, returning an ID usable with PostMessage.</summary>
-    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    [LibraryImport("user32.dll", EntryPoint = "RegisterWindowMessageW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     internal static partial uint RegisterWindowMessage(string lpString);
 
     /// <summary>Posts a message to the specified window (or HWND_BROADCAST).</summary>
