@@ -1,0 +1,27 @@
+# Build outputs
+bin/
+obj/
+publish/
+
+# Local logs
+*.log
+*.log.*
+
+# Visual Studio / Rider files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Mono/VS/Rider compilation files
+*.userprefs
+*.usertasks
+*.pidb
+*.appref-ms
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini

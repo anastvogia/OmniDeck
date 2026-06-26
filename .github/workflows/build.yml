@@ -1,0 +1,44 @@
+name: Build and Publish Sliders
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Restore dependencies
+      run: dotnet restore Sliders.sln
+
+    - name: Publish Minimal Version (Framework Dependent)
+      run: |
+        dotnet publish Sliders/Sliders.csproj -c Release -r win-x64 --self-contained false -o publish/minimal -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true
+
+    - name: Publish Bundled Version (Self Contained)
+      run: |
+        dotnet publish Sliders/Sliders.csproj -c Release -r win-x64 --self-contained true -o publish/bundled -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true
+
+    - name: Upload Minimal Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Sliders-Minimal-win-x64
+        path: publish/minimal/
+
+    - name: Upload Bundled Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Sliders-Bundled-win-x64
+        path: publish/bundled/
