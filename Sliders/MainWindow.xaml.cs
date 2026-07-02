@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Interop;
 using Sliders.Helpers;
+using Log = Sliders.Services.Logger;
 
 namespace Sliders;
 
@@ -17,16 +18,19 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        Log.Info("MainWindow", "Constructor begin");
         InitializeComponent();
         InitializeNotifyIcon();
         Closing += MainWindow_Closing;
         SourceInitialized += MainWindow_SourceInitialized;
+        Log.Info("MainWindow", "Constructor complete");
     }
 
     // ── Single-instance: listen for the "show yourself" broadcast ──
 
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {
+        Log.Info("MainWindow", "SourceInitialized — adding WndProc hook");
         var source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
         source?.AddHook(WndProc);
     }
@@ -35,6 +39,7 @@ public partial class MainWindow : Window
     {
         if (msg == (int)NativeMethods.WM_SHOWSLIDERS)
         {
+            Log.Info("MainWindow", "WM_SHOWSLIDERS received — restoring window");
             RestoreWindow();
             handled = true;
         }
@@ -44,6 +49,7 @@ public partial class MainWindow : Window
 
     private void InitializeNotifyIcon()
     {
+        Log.Info("MainWindow", "InitializeNotifyIcon begin");
         _notifyIcon = new System.Windows.Forms.NotifyIcon();
         
         try
@@ -56,14 +62,16 @@ public partial class MainWindow : Window
                 {
                     _notifyIcon.Icon = new System.Drawing.Icon(stream);
                 }
+                Log.Info("MainWindow", "Tray icon loaded from resource");
             }
             else
             {
                 throw new Exception("Resource stream not found");
             }
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Warn("MainWindow", $"Failed to load icon from resource: {ex.Message}, trying fallback");
             try
             {
                 var processPath = System.Environment.ProcessPath;
@@ -86,17 +94,26 @@ public partial class MainWindow : Window
         _notifyIcon.Visible = true;
 
         // Double-click restores window
-        _notifyIcon.DoubleClick += (s, e) => RestoreWindow();
+        _notifyIcon.DoubleClick += (s, e) =>
+        {
+            Log.Info("MainWindow", "Tray icon double-clicked");
+            RestoreWindow();
+        };
 
         // Create Context Menu for the tray icon
         var contextMenu = new System.Windows.Forms.ContextMenuStrip();
         
         var openItem = new System.Windows.Forms.ToolStripMenuItem("Open Sliders");
-        openItem.Click += (s, e) => RestoreWindow();
+        openItem.Click += (s, e) =>
+        {
+            Log.Info("MainWindow", "Tray context menu: Open Sliders");
+            RestoreWindow();
+        };
         
         var exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit Application");
         exitItem.Click += (s, e) =>
         {
+            Log.Info("MainWindow", "Tray context menu: Exit Application");
             _isExiting = true;
             this.Close();
         };
@@ -106,10 +123,12 @@ public partial class MainWindow : Window
         contextMenu.Items.Add(exitItem);
 
         _notifyIcon.ContextMenuStrip = contextMenu;
+        Log.Info("MainWindow", "InitializeNotifyIcon complete");
     }
 
     private void RestoreWindow()
     {
+        Log.Info("MainWindow", $"RestoreWindow called (WindowState={this.WindowState})");
         this.Show();
         if (this.WindowState == WindowState.Minimized)
         {
@@ -120,10 +139,13 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
+        Log.Info("MainWindow", $"Closing event: _isExiting={_isExiting}");
+
         if (!_isExiting)
         {
             e.Cancel = true;
             this.Hide();
+            Log.Info("MainWindow", "Window hidden to tray");
             
             if (_showBalloonTipOnce)
             {
@@ -138,6 +160,7 @@ public partial class MainWindow : Window
         }
         else
         {
+            Log.Info("MainWindow", "Exiting — cleaning up tray icon");
             // Clean up resources
             if (_notifyIcon != null)
             {
@@ -150,16 +173,19 @@ public partial class MainWindow : Window
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs e)
     {
+        Log.Info("MainWindow", "MinimizeButton clicked");
         this.WindowState = WindowState.Minimized;
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
+        Log.Info("MainWindow", "CloseButton clicked");
         this.Close();
     }
 
     private void Hyperlink_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
     {
+        Log.Info("MainWindow", $"Hyperlink navigate: {e.Uri.AbsoluteUri}");
         try
         {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -168,9 +194,9 @@ public partial class MainWindow : Window
                 UseShellExecute = true
             });
         }
-        catch
+        catch (Exception ex)
         {
-            // Fallback if process start fails
+            Log.Error("MainWindow", "Hyperlink navigation failed", ex);
         }
         e.Handled = true;
     }

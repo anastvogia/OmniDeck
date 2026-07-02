@@ -14,6 +14,19 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr OpenProcess(uint dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, uint dwProcessId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, System.Text.StringBuilder lpExeName, ref uint lpdwSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool CloseHandle(IntPtr hHandle);
+
+    internal const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
     // ── Single-instance support ─────────────────────────────────
 
     /// <summary>Registers a unique window message name, returning an ID usable with PostMessage.</summary>

@@ -1,5 +1,6 @@
 using System.Windows;
 using Sliders.Services.Interfaces;
+using Log = Sliders.Services.Logger;
 
 namespace Sliders.Services;
 
@@ -17,6 +18,7 @@ public sealed class WindowFocusService : IWindowFocusService
 
     public void Attach(Window window)
     {
+        Log.Info("WindowFocusService", "Attaching to window");
         window.Activated += (_, _) => UpdateState(true, window);
         window.Deactivated += (_, _) => UpdateState(false, window);
         window.StateChanged += (_, _) =>
@@ -27,6 +29,7 @@ public sealed class WindowFocusService : IWindowFocusService
 
         // Set initial state
         _isAppWindowActive = window.IsActive && window.WindowState != WindowState.Minimized;
+        Log.Info("WindowFocusService", $"Initial active state: {_isAppWindowActive}");
     }
 
     private void UpdateState(bool active, Window window)
@@ -38,6 +41,7 @@ public sealed class WindowFocusService : IWindowFocusService
         if (_isAppWindowActive == active)
             return;
 
+        Log.Debug("WindowFocusService", $"Active state: {_isAppWindowActive} → {active} (WindowState={window.WindowState})");
         _isAppWindowActive = active;
         ActiveStateChanged?.Invoke(active);
     }

@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Threading;
+using Log = Sliders.Services.Logger;
 
 namespace Sliders.Helpers;
 
@@ -12,23 +13,43 @@ public static class DispatcherHelper
     public static void RunOnUI(Action action)
     {
         if (System.Windows.Application.Current?.Dispatcher is not Dispatcher dispatcher)
+        {
+            Log.Warn("DispatcherHelper", "RunOnUI: Dispatcher is null (app shutting down?)");
             return;
+        }
 
-        if (dispatcher.CheckAccess())
-            action();
-        else
-            dispatcher.Invoke(action);
+        try
+        {
+            if (dispatcher.CheckAccess())
+                action();
+            else
+                dispatcher.Invoke(action);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("DispatcherHelper", "RunOnUI threw", ex);
+        }
     }
 
     /// <summary>Enqueues onto the UI thread without blocking.</summary>
     public static void BeginOnUI(Action action)
     {
         if (System.Windows.Application.Current?.Dispatcher is not Dispatcher dispatcher)
+        {
+            Log.Warn("DispatcherHelper", "BeginOnUI: Dispatcher is null (app shutting down?)");
             return;
+        }
 
-        if (dispatcher.CheckAccess())
-            action();
-        else
-            dispatcher.BeginInvoke(action);
+        try
+        {
+            if (dispatcher.CheckAccess())
+                action();
+            else
+                dispatcher.BeginInvoke(action);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("DispatcherHelper", "BeginOnUI threw", ex);
+        }
     }
 }

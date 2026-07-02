@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using Sliders.Models;
 using Sliders.Services.Interfaces;
+using Log = Sliders.Services.Logger;
 
 namespace Sliders.Services;
 
@@ -26,24 +27,33 @@ public sealed class ConfigService : IConfigService
     public AppProfile Load()
     {
         if (!File.Exists(ConfigPath))
+        {
+            Log.Info("ConfigService", $"Config file not found at {ConfigPath}, creating defaults");
             return CreateDefaults();
+        }
 
         try
         {
+            Log.Info("ConfigService", $"Loading config from {ConfigPath}");
             string json = File.ReadAllText(ConfigPath);
-            return JsonSerializer.Deserialize<AppProfile>(json, JsonOptions) ?? CreateDefaults();
+            var profile = JsonSerializer.Deserialize<AppProfile>(json, JsonOptions) ?? CreateDefaults();
+            Log.Info("ConfigService", $"Config loaded: {profile.Sliders.Count} slider(s), port={profile.Serial.PortName}");
+            return profile;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Log.Error("ConfigService", "Failed to load config, using defaults", ex);
             return CreateDefaults();
         }
     }
 
     public void Save(AppProfile profile)
     {
+        Log.Info("ConfigService", $"Saving config to {ConfigPath}");
         Directory.CreateDirectory(ConfigDir);
         string json = JsonSerializer.Serialize(profile, JsonOptions);
         File.WriteAllText(ConfigPath, json);
+        Log.Info("ConfigService", "Config saved");
     }
 
     private static AppProfile CreateDefaults()

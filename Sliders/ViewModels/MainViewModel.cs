@@ -5,6 +5,7 @@ using Sliders.Helpers;
 using Sliders.Models;
 using Sliders.Services.Interfaces;
 using Sliders.ViewModels.Base;
+using Log = Sliders.Services.Logger;
 
 namespace Sliders.ViewModels;
 
@@ -24,6 +25,7 @@ public class MainViewModel : ObservableObject, IDisposable
     // Throttle: discard serial frames arriving faster than ~60 fps
     private readonly Stopwatch _throttle = Stopwatch.StartNew();
     private const long ThrottleMs = 16;
+    private int[]? _lastRawValues;
 
     // ── Observable properties ───────────────────────────────────
 
@@ -151,6 +153,8 @@ public class MainViewModel : ObservableObject, IDisposable
         IProcessDiscoveryService processDiscovery,
         IWindowFocusService windowFocusService)
     {
+        Log.Info("MainViewModel", "Constructor begin");
+
         _serialService = serialService;
         _audioService = audioService;
         _configService = configService;
@@ -170,31 +174,37 @@ public class MainViewModel : ObservableObject, IDisposable
         _serialService.SliderValuesReceived += OnSliderValuesReceived;
         _serialService.Disconnected += OnSerialDisconnected;
         _windowFocusService.ActiveStateChanged += OnWindowActiveChanged;
+        Log.Info("MainViewModel", "Events wired");
 
         // Initialize
+        Log.Info("MainViewModel", "Initializing AudioService");
         _audioService.Initialize();
+        Log.Info("MainViewModel", "Loading config");
         LoadConfig();
         OnRefreshPorts();
 
         // Autoconnect if configured and a port is set
         if (AutoConnect && !string.IsNullOrEmpty(SelectedPort))
         {
+            Log.Info("MainViewModel", $"AutoConnect enabled, connecting to {SelectedPort}");
             OnConnect();
         }
 
-        // Start process discovery auto-refresh timer (every 4 seconds)
+        // Start process discovery auto-refresh timer (every 2 seconds)
         _refreshTimer = new System.Windows.Threading.DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(4)
+            Interval = TimeSpan.FromSeconds(2)
         };
         _refreshTimer.Tick += (s, e) => OnRefreshProcesses();
         _refreshTimer.Start();
+        Log.Info("MainViewModel", "Constructor complete — refresh timer started (4s interval)");
     }
 
     // ── Config ──────────────────────────────────────────────────
 
     private void LoadConfig()
     {
+        Log.Info("MainViewModel", "LoadConfig begin");
         var profile = _configService.Load();
 
         SelectedPort = profile.Serial.PortName;
@@ -203,6 +213,7 @@ public class MainViewModel : ObservableObject, IDisposable
         LaunchOnStartup = profile.LaunchOnStartup;
         LaunchMinimized = profile.LaunchMinimized;
         AutoConnect = profile.AutoConnect;
+        Log.Info("MainViewModel", $"Config loaded: Port={profile.Serial.PortName}, Baud={profile.Serial.BaudRate}, AutoConnect={profile.AutoConnect}, LaunchMinimized={profile.LaunchMinimized}");
 
         Sliders.Clear();
         foreach (var cfg in profile.Sliders.OrderBy(s => s.DisplayOrder))
@@ -210,12 +221,14 @@ public class MainViewModel : ObservableObject, IDisposable
             var vm = SliderViewModel.FromConfig(cfg);
             Sliders.Add(vm);
         }
+        Log.Info("MainViewModel", $"Loaded {Sliders.Count} slider(s)");
 
         OnRefreshProcesses();
     }
 
     private void OnSaveConfig()
     {
+        Log.Info("MainViewModel", "OnSaveConfig");
         var profile = new AppProfile
         {
             Serial = new SerialSettings
@@ -232,12 +245,14 @@ public class MainViewModel : ObservableObject, IDisposable
 
         _configService.Save(profile);
         StatusMessage = $"Configuration saved at {DateTime.Now:HH:mm:ss}";
+        Log.Info("MainViewModel", $"Config saved (Port={SelectedPort}, Baud={SelectedBaudRate}, {Sliders.Count} sliders)");
     }
 
     // ── Serial ──────────────────────────────────────────────────
 
     private async void OnConnect()
     {
+        Log.Info("MainViewModel", $"OnConnect: port={SelectedPort}, baud={SelectedBaudRate}");
         try
         {
             var settings = new SerialSettings
@@ -250,15 +265,18 @@ public class MainViewModel : ObservableObject, IDisposable
             await _serialService.ConnectAsync(settings);
             IsConnected = _serialService.IsConnected;
             StatusMessage = $"Connected to {SelectedPort}";
+            Log.Info("MainViewModel", $"Connected successfully to {SelectedPort}");
         }
         catch (Exception ex)
         {
+            Log.Error("MainViewModel", $"Connection to {SelectedPort} failed", ex);
             StatusMessage = $"Connection failed: {ex.Message}";
         }
     }
 
     private void OnDisconnect()
     {
+        Log.Info("MainViewModel", "OnDisconnect");
         _serialService.Disconnect();
         IsConnected = false;
         StatusMessage = "Disconnected";
@@ -266,6 +284,7 @@ public class MainViewModel : ObservableObject, IDisposable
 
     private void OnSerialDisconnected()
     {
+        Log.Warn("MainViewModel", "Serial device disconnected unexpectedly");
         DispatcherHelper.BeginOnUI(() =>
         {
             IsConnected = false;
@@ -281,6 +300,8 @@ public class MainViewModel : ObservableObject, IDisposable
 
         if (AvailablePorts.Count > 0 && !AvailablePorts.Contains(SelectedPort))
             SelectedPort = AvailablePorts[0];
+
+        Log.Debug("MainViewModel", $"RefreshPorts: found {AvailablePorts.Count} port(s): [{string.Join(", ", AvailablePorts)}]");
     }
 
     // ── Core pipeline: serial data → audio ──────────────────────
@@ -295,6 +316,27 @@ public class MainViewModel : ObservableObject, IDisposable
         if (_throttle.ElapsedMilliseconds < ThrottleMs)
             return;
         _throttle.Restart();
+
+        // Jitter / Redundancy Filter: only process if the raw values have actually changed
+        bool changed = _lastRawValues == null || _lastRawValues.Length != rawValues.Length;
+        if (!changed)
+        {
+            for (int i = 0; i < rawValues.Length; i++)
+            {
+                if (_lastRawValues![i] != rawValues[i])
+                {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
+        if (!changed)
+            return;
+
+        _lastRawValues = (int[])rawValues.Clone();
+
+        Log.Debug("MainViewModel", $"SliderValues received: [{string.Join("|", rawValues)}]");
 
         // Build the list of explicitly mapped process names (for active_window exclusion)
         var explicitTargets = Sliders
@@ -334,6 +376,7 @@ public class MainViewModel : ObservableObject, IDisposable
 
     private void OnWindowActiveChanged(bool active)
     {
+        Log.Debug("MainViewModel", $"WindowActiveChanged: active={active}");
         DispatcherHelper.BeginOnUI(() => IsActive = active);
     }
 
@@ -342,6 +385,7 @@ public class MainViewModel : ObservableObject, IDisposable
     private void OnRefreshProcesses()
     {
         var processes = _processDiscovery.GetAudioProcessNames();
+        Log.Debug("MainViewModel", $"RefreshProcesses: found {processes.Count} process(es)");
 
         foreach (var slider in Sliders)
         {
@@ -406,6 +450,7 @@ public class MainViewModel : ObservableObject, IDisposable
         if (newIndex < 0 || newIndex >= Sliders.Count)
             return;
 
+        Log.Info("MainViewModel", $"MoveSlider: index {index} → {newIndex}");
         Sliders.Move(index, newIndex);
 
         // Update display order on all sliders
@@ -417,6 +462,7 @@ public class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        Log.Info("MainViewModel", "Dispose begin");
         _refreshTimer.Stop();
 
         _serialService.SliderValuesReceived -= OnSliderValuesReceived;
@@ -425,5 +471,6 @@ public class MainViewModel : ObservableObject, IDisposable
 
         _serialService.Dispose();
         _audioService.Dispose();
+        Log.Info("MainViewModel", "Dispose complete");
     }
 }

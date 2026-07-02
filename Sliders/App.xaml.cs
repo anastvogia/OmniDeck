@@ -4,6 +4,7 @@ using Sliders.Helpers;
 using Sliders.Services;
 using Sliders.Services.Interfaces;
 using Sliders.ViewModels;
+using Log = Sliders.Services.Logger;
 
 namespace Sliders;
 
@@ -19,10 +20,27 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Initialize the logger FIRST so everything below is captured
+        Log.Initialize();
+        Log.Info("App", "OnStartup begin");
+
         // Register global exception handlers to write logs and show a message box
-        AppDomain.CurrentDomain.UnhandledException += (s, args) => LogException(args.ExceptionObject as Exception, "AppDomain");
-        DispatcherUnhandledException += (s, args) => { LogException(args.Exception, "Dispatcher"); args.Handled = true; };
-        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, args) => LogException(args.Exception, "TaskScheduler");
+        AppDomain.CurrentDomain.UnhandledException += (s, args) =>
+        {
+            Log.Error("App", "AppDomain.UnhandledException", args.ExceptionObject as Exception ?? new Exception(args.ExceptionObject?.ToString() ?? "unknown"));
+            LogException(args.ExceptionObject as Exception, "AppDomain");
+        };
+        DispatcherUnhandledException += (s, args) =>
+        {
+            Log.Error("App", "DispatcherUnhandledException", args.Exception);
+            LogException(args.Exception, "Dispatcher");
+            args.Handled = true;
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, args) =>
+        {
+            Log.Error("App", "TaskScheduler.UnobservedTaskException", args.Exception);
+            LogException(args.Exception, "TaskScheduler");
+        };
 
         base.OnStartup(e);
 
@@ -32,14 +50,17 @@ public partial class App : System.Windows.Application
         try
         {
             _singleInstanceMutex = new Mutex(true, mutexName, out createdNew);
+            Log.Info("App", $"Mutex created: createdNew={createdNew}");
         }
         catch (Exception ex)
         {
+            Log.Error("App", "Mutex creation failed", ex);
             System.Diagnostics.Debug.WriteLine($"[App] Mutex creation failed: {ex.Message}");
         }
 
         if (!createdNew)
         {
+            Log.Info("App", "Another instance detected, sending WM_SHOWSLIDERS and shutting down");
             // Another instance is already running — ask it to show itself
             NativeMethods.PostMessage(
                 NativeMethods.HWND_BROADCAST,
@@ -47,11 +68,13 @@ public partial class App : System.Windows.Application
                 IntPtr.Zero,
                 IntPtr.Zero);
 
+            Log.Shutdown();
             Shutdown();
             return;
         }
 
         // ── Build DI container ──────────────────────────────────
+        Log.Info("App", "Building DI container");
         var services = new ServiceCollection();
 
         // Services (singletons — one audio endpoint, one serial port)
@@ -68,36 +91,47 @@ public partial class App : System.Windows.Application
         services.AddSingleton<MainWindow>();
 
         _serviceProvider = services.BuildServiceProvider();
+        Log.Info("App", "DI container built");
 
         // ── Launch ──────────────────────────────────────────────
+        Log.Info("App", "Resolving services from DI");
         var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
         var viewModel = _serviceProvider.GetRequiredService<MainViewModel>();
         var focusService = _serviceProvider.GetRequiredService<IWindowFocusService>();
 
         mainWindow.DataContext = viewModel;
         focusService.Attach(mainWindow);
+        Log.Info("App", $"LaunchMinimized={viewModel.LaunchMinimized}");
 
         if (!viewModel.LaunchMinimized)
         {
             mainWindow.Show();
+            Log.Info("App", "MainWindow shown");
         }
         else
         {
             // Force handle creation so WndProc hook is registered for single-instance restoration
             new System.Windows.Interop.WindowInteropHelper(mainWindow).EnsureHandle();
+            Log.Info("App", "MainWindow handle created (minimized launch)");
         }
+
+        Log.Info("App", "OnStartup complete");
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Log.Info("App", "OnExit begin");
+
         // Save config on exit
         if (_serviceProvider?.GetService<MainViewModel>() is { } vm)
         {
+            Log.Info("App", "Saving config and disposing ViewModel");
             // Auto-save before shutting down
             vm.SaveConfigCommand.Execute(null);
             vm.Dispose();
         }
 
+        Log.Info("App", "Disposing service provider");
         _serviceProvider?.Dispose();
         try
         {
@@ -105,6 +139,9 @@ public partial class App : System.Windows.Application
         }
         catch { }
         _singleInstanceMutex?.Dispose();
+
+        Log.Info("App", "OnExit complete");
+        Log.Shutdown();
         base.OnExit(e);
     }
 

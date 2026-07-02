@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Sliders.Services.Interfaces;
+using Log = Sliders.Services.Logger;
 
 namespace Sliders.Services;
 
@@ -50,11 +51,12 @@ public sealed class ProcessDiscoveryService : IProcessDiscoveryService
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore overall process enumeration errors
+            Log.Error("ProcessDiscovery", "Failed to enumerate processes", ex);
         }
 
+        Log.Debug("ProcessDiscovery", $"Discovered {result.Count} audio/windowed process(es)");
         return result.OrderBy(x => x).ToList();
     }
 }
