@@ -7,6 +7,7 @@
         Height="490"
         MinHeight="490"
         MaxHeight="490"
+        MinWidth="680"
         SizeToContent="Width"
         ResizeMode="CanMinimize"
         WindowStyle="None"
@@ -23,12 +24,9 @@
     </WindowChrome.WindowChrome>
 
     <Window.Resources>
-        <conv:BoolToStatusBrushConverter x:Key="BoolToStatusBrush"/>
-        <conv:ValueToWidthConverter x:Key="ValueToWidth"/>
-        <conv:ValueToBarBrushConverter x:Key="ValueToBarBrush"/>
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
         <conv:InvertedBoolToVisibilityConverter x:Key="InvertedBoolToVisibility"/>
-        <conv:BoolToActiveTextConverter x:Key="BoolToActiveText"/>
+        <conv:StringToVisibilityConverter x:Key="StringToVisibility"/>
 
         <!-- Channel Strip Card Border Style -->
         <Style x:Key="ChannelStripBorder" TargetType="Border">
@@ -80,11 +78,12 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Top header: CH Label and Move buttons -->
+                    <!-- Top header: CH Label, Move buttons, and Remove button -->
                     <Grid Grid.Row="0" Margin="0,0,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
@@ -93,12 +92,12 @@
                                 Command="{Binding DataContext.MoveUpCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                 CommandParameter="{Binding}"
                                 ToolTip="Move left"
-                                Width="20" Height="20">
+                                Width="18" Height="20">
                             <Path Data="M 4.5,1 L 1,4.5 L 4.5,8" 
                                   Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
                                   StrokeThickness="1.5" 
-                                  StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round"
+                                  StrokeStartLineCap="Round" 
+                                  StrokeEndLineCap="Round" 
                                   Width="4" Height="7" 
                                   Stretch="Uniform"/>
                         </Button>
@@ -107,7 +106,7 @@
                         <Border Grid.Column="1" 
                                 HorizontalAlignment="Center" 
                                 VerticalAlignment="Center"
-                                Padding="5,2" 
+                                Padding="4,2" 
                                 CornerRadius="4" 
                                 Background="{StaticResource AccentBadgeBrush}">
                             <TextBlock Text="{Binding SliderIndex, StringFormat='CH {0}'}" 
@@ -122,13 +121,29 @@
                                 Command="{Binding DataContext.MoveDownCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                 CommandParameter="{Binding}"
                                 ToolTip="Move right"
-                                Width="20" Height="20">
+                                Width="18" Height="20"
+                                Margin="0,0,2,0">
                             <Path Data="M 1.5,1 L 5,4.5 L 1.5,8" 
                                   Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
                                   StrokeThickness="1.5" 
-                                  StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round"
+                                  StrokeStartLineCap="Round" 
+                                  StrokeEndLineCap="Round" 
                                   Width="4" Height="7" 
+                                  Stretch="Uniform"/>
+                        </Button>
+
+                        <!-- Delete Channel -->
+                        <Button Grid.Column="3" Style="{StaticResource IconButton}"
+                                Command="{Binding DataContext.RemoveSliderCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                CommandParameter="{Binding}"
+                                ToolTip="Delete channel"
+                                Width="18" Height="20">
+                            <Path Data="M 2,2 L 8,8 M 8,2 L 2,8" 
+                                  Stroke="{StaticResource TextMutedBrush}" 
+                                  StrokeThickness="1.5" 
+                                  StrokeStartLineCap="Round" 
+                                  StrokeEndLineCap="Round" 
+                                  Width="7" Height="7" 
                                   Stretch="Uniform"/>
                         </Button>
                     </Grid>
@@ -376,6 +391,23 @@
                                         <TextBlock Text="Disconnect" VerticalAlignment="Center" FontSize="11"/>
                                     </StackPanel>
                                 </Button>
+                                <Button Style="{StaticResource GhostButton}"
+                                        Command="{Binding RestartCommand}"
+                                        Margin="0,8,0,0"
+                                        Padding="10,6">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="M 1,5 A 4,4 0 1,1 2,8 M 2,3 L 2,6 L 5,6" 
+                                              Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                              StrokeThickness="1.5" 
+                                              StrokeStartLineCap="Round"
+                                              StrokeEndLineCap="Round"
+                                              VerticalAlignment="Center" 
+                                              Margin="0,0,6,0" 
+                                              Width="10" Height="10" 
+                                              Stretch="Uniform"/>
+                                        <TextBlock Text="Restart Services" VerticalAlignment="Center" FontSize="11"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </Border>
 
@@ -419,30 +451,42 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <!-- Status indicators at very bottom of Sidebar (GitHub Link) -->
-                <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
-                    <TextBlock FontFamily="Segoe UI"
-                               FontSize="10"
-                               FontWeight="Medium"
-                               HorizontalAlignment="Left"
-                               VerticalAlignment="Center">
-                        <TextBlock.Resources>
-                            <Style TargetType="Hyperlink">
-                                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
-                                <Setter Property="TextDecorations" Value="None"/>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
-                                        <Setter Property="TextDecorations" Value="Underline"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Resources>
-                        <Hyperlink NavigateUri="https://github.com/anastvogia" 
-                                   RequestNavigate="Hyperlink_RequestNavigate">
-                            github.com/anastvogia
-                        </Hyperlink>
-                    </TextBlock>
+                <!-- Status indicators at very bottom of Sidebar (GitHub Link & Logs Button) -->
+                <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+                    <Grid>
+                        <TextBlock FontFamily="Segoe UI"
+                                   FontSize="10"
+                                   FontWeight="Medium"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center">
+                            <TextBlock.Resources>
+                                <Style TargetType="Hyperlink">
+                                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                                    <Setter Property="TextDecorations" Value="None"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                            <Setter Property="TextDecorations" Value="Underline"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Resources>
+                            <Hyperlink NavigateUri="https://github.com/anastvogia" 
+                                       RequestNavigate="Hyperlink_RequestNavigate">
+                                github.com/anastvogia
+                            </Hyperlink>
+                        </TextBlock>
+
+                        <Button Style="{StaticResource GhostButton}"
+                                Command="{Binding OpenLogsCommand}"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Padding="8,2"
+                                Height="22"
+                                ToolTip="Open the application log file">
+                            <TextBlock Text="Logs" FontSize="10" Foreground="{StaticResource TextMutedBrush}"/>
+                        </Button>
+                    </Grid>
                 </Border>
             </Grid>
         </Border>
@@ -470,35 +514,59 @@
                            FontWeight="Bold"
                            VerticalAlignment="Center"/>
 
-                <!-- Refresh Apps Button -->
-                <Button Grid.Column="1"
-                        Style="{StaticResource GhostButton}"
-                        Command="{Binding RefreshProcessesCommand}"
-                        VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Data="M 1,5 A 4,4 0 1,1 2,8 M 2,3 L 2,6 L 5,6" 
-                              Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
-                              StrokeThickness="1.5" 
-                              StrokeStartLineCap="Round"
-                              StrokeEndLineCap="Round"
-                              Margin="0,0,6,0" 
-                              VerticalAlignment="Center" 
-                              Width="10" Height="10" 
-                              Stretch="Uniform"/>
-                        <TextBlock Text="Refresh Apps" VerticalAlignment="Center" FontSize="11"/>
-                    </StackPanel>
-                </Button>
+                <!-- Workspace Header Action Buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Add Channel Button -->
+                    <Button Style="{StaticResource GhostButton}"
+                            Command="{Binding AddSliderCommand}"
+                            VerticalAlignment="Center"
+                            Margin="0,0,6,0"
+                            ToolTip="Add another slider channel strip">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="M 5,1 L 5,9 M 1,5 L 9,5" 
+                                  Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                  StrokeThickness="1.5" 
+                                  StrokeStartLineCap="Round" 
+                                  StrokeEndLineCap="Round" 
+                                  Margin="0,0,6,0" 
+                                  VerticalAlignment="Center" 
+                                  Width="10" Height="10" 
+                                  Stretch="Uniform"/>
+                            <TextBlock Text="Add Channel" VerticalAlignment="Center" FontSize="11"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Refresh Apps Button -->
+                    <Button Style="{StaticResource GhostButton}"
+                            Command="{Binding RefreshProcessesCommand}"
+                            VerticalAlignment="Center"
+                            ToolTip="Refresh list of audio applications">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="M 1,5 A 4,4 0 1,1 2,8 M 2,3 L 2,6 L 5,6" 
+                                  Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                  StrokeThickness="1.5" 
+                                  StrokeStartLineCap="Round" 
+                                  StrokeEndLineCap="Round" 
+                                  Margin="0,0,6,0" 
+                                  VerticalAlignment="Center" 
+                                  Width="10" Height="10" 
+                                  Stretch="Uniform"/>
+                            <TextBlock Text="Refresh Apps" VerticalAlignment="Center" FontSize="11"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </Grid>
 
-            <!-- Horizontal Mixing Board Area (Scaling Window size) -->
+            <!-- Horizontal Mixing Board Area (Auto-scrolling with Scaling Window size) -->
             <ScrollViewer Grid.Row="1" 
                           VerticalScrollBarVisibility="Disabled" 
-                          HorizontalScrollBarVisibility="Disabled"
-                          HorizontalAlignment="Center"
+                          HorizontalScrollBarVisibility="Auto"
+                          HorizontalAlignment="Stretch"
                           VerticalAlignment="Stretch">
                 <ItemsControl ItemsSource="{Binding Sliders}"
                               ItemTemplate="{StaticResource SliderCardTemplate}"
-                              VerticalAlignment="Stretch">
+                              VerticalAlignment="Stretch"
+                              HorizontalAlignment="Center">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Stretch"/>

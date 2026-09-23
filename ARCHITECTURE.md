@@ -71,16 +71,17 @@ Sliders/
     │   │   ├── IAudioService.cs        # WASAPI audio control contract
     │   │   ├── ISerialService.cs       # Serial communication contract
     │   │   ├── IConfigService.cs       # JSON config persistence contract
-    │   │   ├── IProcessDiscoveryService.cs  # Process enumeration contract
-    │   │   └── IWindowFocusService.cs  # Window focus tracking contract
-    │   ├── AudioService.cs             # WASAPI implementation + IMMNotificationClient
+    │   │   ├── IStartupService.cs      # Windows Run registry key contract
+    │   │   └── IProcessDiscoveryService.cs  # Process enumeration contract
+    │   ├── AudioService.cs             # WASAPI implementation + IMMNotificationClient + OnSessionCreated
     │   ├── SerialService.cs            # System.IO.Ports serial reader
-    │   ├── ConfigService.cs            # JSON file reader/writer
+    │   ├── ConfigService.cs            # JSON file reader/writer (atomic writes)
+    │   ├── StartupService.cs           # Windows Run registry key manager
     │   ├── ProcessDiscoveryService.cs  # Audio session + window process discovery
-    │   └── WindowFocusService.cs       # Activated/Deactivated/StateChanged tracker
+    │   └── Logger.cs                   # Thread-safe auto-flushing diagnostics logger
     │
     ├── Converters/
-    │   └── Converters.cs              # Six WPF value converters for UI bindings
+    │   └── Converters.cs              # Active WPF value converters for UI bindings
     │
     ├── Helpers/
     │   ├── DispatcherHelper.cs         # UI thread marshalling (RunOnUI, BeginOnUI)
@@ -97,30 +98,30 @@ Sliders/
 ### 4.1 Startup Sequence (`App.xaml.cs → OnStartup`)
 
 ```
-1. Create named Mutex "Global\Sliders_B8A3F1E0_SingleInstance"
+1. Initialize Logger and configure log rotation
+2. Register global exception handlers (AppDomain, Dispatcher, TaskScheduler)
+3. Create named Mutex "Local\Sliders_B8A3F1E0_SingleInstance"
    ├─ If mutex already held → PostMessage(HWND_BROADCAST, WM_SHOWSLIDERS) → Shutdown()
    └─ If new mutex created → continue
-2. Build DI container (all services as singletons)
-3. Resolve MainWindow, MainViewModel, IWindowFocusService
-4. Set MainWindow.DataContext = MainViewModel
-5. Attach WindowFocusService to MainWindow
-6. If !LaunchMinimized → mainWindow.Show()
+4. Build DI container (all services as singletons, including IStartupService)
+5. Resolve MainWindow and MainViewModel
+6. Set MainWindow.DataContext = MainViewModel
+7. If !LaunchMinimized → mainWindow.Show(); else WindowInteropHelper.EnsureHandle()
 ```
 
 ### 4.2 MainViewModel Constructor (the real initialization)
 
 ```
-1. Store injected service references
-2. Create RelayCommands (Connect, Disconnect, RefreshPorts, RefreshProcesses, Save, MoveUp, MoveDown)
+1. Store injected service references (Serial, Audio, Config, Startup, ProcessDiscovery)
+2. Create RelayCommands (Connect, Disconnect, RefreshPorts, RefreshProcesses, Save, MoveUp, MoveDown, Restart, AddSlider, RemoveSlider)
 3. Subscribe to events:
    - _serialService.SliderValuesReceived → OnSliderValuesReceived
    - _serialService.Disconnected → OnSerialDisconnected
-   - _windowFocusService.ActiveStateChanged → OnWindowActiveChanged
-4. _audioService.Initialize()  ← acquires default audio endpoint, registers IMMNotificationClient
+4. _audioService.Initialize()  ← acquires default audio endpoint, registers IMMNotificationClient & OnSessionCreated
 5. LoadConfig()                ← reads JSON, populates Sliders collection, refreshes processes
 6. OnRefreshPorts()            ← enumerates COM ports
 7. If AutoConnect && port set  → OnConnect()
-8. Start DispatcherTimer (4s interval) → OnRefreshProcesses() on each tick
+8. Start DispatcherTimer (2s interval) → OnRefreshProcesses() on each tick
 ```
 
 ### 4.3 Shutdown Sequence (`App.xaml.cs → OnExit`)
@@ -131,9 +132,10 @@ Sliders/
    ├─ Stop DispatcherTimer
    ├─ Unsubscribe all event handlers
    ├─ SerialService.Dispose()   ← closes COM port
-   └─ AudioService.Dispose()    ← unregisters IMMNotificationClient, disposes sessions + device
+   └─ AudioService.Dispose()    ← unregisters callbacks, disposes sessions + device
 3. ServiceProvider.Dispose()
 4. Mutex.ReleaseMutex() + Dispose()
+5. Logger.Shutdown()
 ```
 
 ---
@@ -199,20 +201,19 @@ All services are registered as **singletons** in the DI container. There is exac
 - `_device` (`MMDevice`) — the current default render endpoint
 - `_sessionCache` (`Dictionary<string, List<AudioSessionControl>>`) — process name → active audio sessions
 - `_cacheLock` (`object`) — guards `_sessionCache` reads/writes
-- `_deviceLock` (`object`) — guards `_device` replacement during device change events
 
 **IMMNotificationClient implementation**: The service implements the Windows `IMMNotificationClient` interface to receive system audio notifications. When the default audio device changes (e.g. after sleep/wake, USB reconnect, or Bluetooth device connection), `OnDefaultDeviceChanged` triggers `ReacquireDevice()` which:
-1. Disposes all cached sessions
-2. Disposes the old `_device`
-3. Fetches the new default endpoint via `_enumerator.GetDefaultAudioEndpoint()`
-4. Rebuilds the session cache
+1. Unhooks `OnSessionCreated` from the previous device
+2. Disposes all cached sessions
+3. Disposes the old `_device`
+4. Fetches the new default endpoint via `_enumerator.GetDefaultAudioEndpoint()`
+5. Re-hooks `OnSessionCreated`
+6. Rebuilds the session cache
 
 **Session cache refresh strategies**:
-- `RefreshSessionCache()` — public, takes both `_deviceLock` then `_cacheLock`. Called by `GetActiveAudioProcesses()`.
-- `RefreshSessionCacheUnsafe()` — private, caller must already hold `_cacheLock`, takes `_deviceLock` internally. Called within `SetProcessVolume()` on cache miss or stale sessions.
-- `ReacquireDevice()` — private, takes `_deviceLock` then `_cacheLock` internally. Called from IMMNotificationClient callbacks.
-
-**Lock ordering**: Always `_deviceLock` → `_cacheLock` (never reversed) to prevent deadlocks.
+- `RefreshSessionCache()` — public. Preserves the active `_device`, invokes `sessionManager.RefreshSessions()`, and rebuilds the process session map without COM churn.
+- `OnSessionCreatedHandler` — event-driven callback from WASAPI when an application starts an audio stream; immediately schedules a safe UI-thread session cache refresh.
+- `ReacquireDevice()` — private, handles device invalidation (sleep/wake, plug/unplug) cleanly.
 
 **Volume target types**:
 | Target string | Behavior |
@@ -232,19 +233,21 @@ All services are registered as **singletons** in the DI container. There is exac
 - `_cts` (`CancellationTokenSource`) — cancels the read loop on disconnect
 - `_isConnected` (`volatile bool`) — connection state flag
 
-**Read loop** (`ReadLoopAsync`): Runs on a ThreadPool thread via `Task.Run()`. Reads lines from the serial port, parses `|`-delimited integers, validates each is 0–1023, and fires `SliderValuesReceived(int[])`.
+**Read loop** (`ReadLoop`): Runs on a dedicated ThreadPool thread via `Task.Run()`. Reads lines synchronously from the serial port, parses `|`-delimited integers, validates each is 0–1023, and fires `SliderValuesReceived(int[])` without nested task allocations.
 
 **Wire protocol**: The Arduino sends newline-terminated lines of `|`-separated integers. Example: `"512|1023|0|768\n"`. Each integer represents a 10-bit ADC reading (0–1023) from one physical slider.
 
-**Disconnection handling**: If the serial port throws `IOException`, `UnauthorizedAccessException`, or `InvalidOperationException` during read, the service sets `_isConnected = false` and fires the `Disconnected` event.
+**Disconnection handling**: If the serial port throws `IOException`, `UnauthorizedAccessException`, or `InvalidOperationException` during read (and cancellation was not requested), the service sets `_isConnected = false` and fires the `Disconnected` event.
 
 ### 6.3 IConfigService / ConfigService
 
-**Responsibility**: Persists and loads `AppProfile` as indented JSON.
+**Responsibility**: Persists and loads `AppProfile` as indented JSON with atomic file writing.
 
 **File location**: `%AppData%\Sliders\sliders_config.json`
 
 **JSON options**: `WriteIndented = true`, `PropertyNamingPolicy = CamelCase`
+
+**Atomic saving**: Writes JSON to `%AppData%\Sliders\sliders_config.json.tmp` first, then executes an atomic move with overwrite to prevent file corruption during power cuts or abrupt process termination.
 
 **Default config**: 4 sliders (indices 0–3), slider 0 mapped to "master", others unmapped. COM3 at 9600 baud. No auto-launch, no auto-connect, not minimized.
 
@@ -258,11 +261,9 @@ All services are registered as **singletons** in the DI container. There is exac
 
 Excludes the app's own process (`"sliders"`).
 
-### 6.5 IWindowFocusService / WindowFocusService
+### 6.5 IStartupService / StartupService
 
-**Responsibility**: Tracks whether the app's own main window is active (focused and not minimized).
-
-Attaches to `Activated`, `Deactivated`, and `StateChanged` events of the main window. Fires `ActiveStateChanged(bool)` when state transitions. Currently tracked by `MainViewModel.IsActive` but **not used as a gate** for audio control — audio always works regardless of window focus.
+**Responsibility**: Manages automatic application launch on Windows logon via the current user Run registry key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Fully encapsulates registry P/Invoke and security exceptions, decoupling OS registry manipulation from ViewModels.
 
 ---
 
@@ -276,15 +277,14 @@ Attaches to `Activated`, `Deactivated`, and `StateChanged` events of the main wi
 | Property | Type | Purpose |
 |---|---|---|
 | `IsConnected` | `bool` | Serial port connection status |
-| `IsActive` | `bool` | Whether the app window is focused |
 | `GateStatus` | `string` (derived) | "● Online" / "○ Disconnected" |
 | `SelectedPort` | `string` | Currently selected COM port |
 | `SelectedBaudRate` | `int` | Currently selected baud rate |
 | `StatusMessage` | `string` | Bottom status text |
-| `LaunchOnStartup` | `bool` | Sets/removes `HKCU\...\Run\Sliders` registry value |
+| `LaunchOnStartup` | `bool` | Delegates to `_startupService` |
 | `LaunchMinimized` | `bool` | Whether to hide window on start |
 | `AutoConnect` | `bool` | Whether to connect on startup |
-| `Sliders` | `ObservableCollection<SliderViewModel>` | The slider collection |
+| `Sliders` | `ObservableCollection<SliderViewModel>` | Dynamically managed slider collection |
 | `AvailablePorts` | `ObservableCollection<string>` | Available COM ports |
 | `AvailableBaudRates` | `int[]` | `{ 9600, 19200, 38400, 57600, 115200 }` |
 
@@ -298,6 +298,9 @@ Attaches to `Activated`, `Deactivated`, and `StateChanged` events of the main wi
 | `SaveConfigCommand` | Writes JSON config | Always |
 | `MoveUpCommand` | Moves slider left in UI | Always (bounds-checked internally) |
 | `MoveDownCommand` | Moves slider right in UI | Always (bounds-checked internally) |
+| `RestartCommand` | Clean manual restart of audio/serial | Always |
+| `AddSliderCommand` | Dynamically creates a new slider channel | Always |
+| `RemoveSliderCommand` | Removes a selected slider channel | Always |
 
 ### 7.2 SliderViewModel
 
@@ -415,7 +418,7 @@ AppProfile
 
 ### 12.3 Startup Registry
 
-When `LaunchOnStartup` is toggled, `SetStartupRegistry()` writes or deletes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Sliders` with the quoted exe path.
+When `LaunchOnStartup` is toggled, `IStartupService` (`StartupService.cs`) writes or deletes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Sliders` with the quoted executable path, decoupling registry persistence from ViewModels.
 
 ---
 
@@ -423,7 +426,7 @@ When `LaunchOnStartup` is toggled, `SetStartupRegistry()` writes or deletes `HKC
 
 The `OnRefreshProcesses()` method in MainViewModel runs:
 - On startup (called from `LoadConfig()`)
-- Every 4 seconds via `DispatcherTimer`
+- Every 2 seconds via `DispatcherTimer`
 - Manually via "Refresh Apps" button
 
 **Algorithm**:
@@ -487,12 +490,8 @@ Border (ChannelStripBorder style, hover effect)
 
 | Converter | Input → Output |
 |---|---|
-| `BoolToStatusBrushConverter` | `bool` → Emerald green or Slate gray `SolidColorBrush` |
-| `ValueToWidthConverter` | `float` + parameter (max width string) → proportional `double` |
-| `ValueToBarBrushConverter` | Any → Blue 600 `SolidColorBrush` (constant) |
 | `BoolToVisibilityConverter` | `true` → Visible, `false` → Collapsed |
 | `InvertedBoolToVisibilityConverter` | `true` → Collapsed, `false` → Visible |
-| `BoolToActiveTextConverter` | `true` → "Window Active", `false` → "Window Inactive" |
 | `StringToVisibilityConverter` | null/empty → Collapsed, otherwise → Visible |
 
 ---
@@ -583,27 +582,21 @@ The `AudioService` implements `IMMNotificationClient` to survive:
 | Audio session access | Individual `try-catch` per session; stale sessions trigger cache refresh and retry |
 | Audio device invalidation | `IMMNotificationClient` callbacks re-acquire device; `try-catch` wraps all COM calls |
 | Process enumeration | Individual `try-catch` per process (access denied is common for system processes) |
-| Config load failure | Returns default `AppProfile` |
-| Registry access failure | Silently caught, logged to `Debug.WriteLine` |
-| No global exception handler | The app has **no** `DispatcherUnhandledException` or `AppDomain.UnhandledException` handler |
+| Config load failure | Returns default `AppProfile`; save writes atomically via `.tmp` file |
+| Registry access failure | Handled inside `StartupService`, logged via `Logger.Error` |
+| Global exception handlers | `AppDomain.UnhandledException`, `DispatcherUnhandledException`, and `TaskScheduler.UnobservedTaskException` write to `crash.txt` and `sliders.log` with emergency dialog |
 
 ---
 
 ## 18. Known Issues & Technical Debt
 
-1. **No global exception handler**: An unhandled exception on the UI thread will crash the app with no recovery. The `stderr.log` shows a historical crash from a missing `icon.png` resource at startup.
+1. **Hardware Takeover Model**: Volume updates operate on a hardware movement threshold (3-step ADC jitter filter). External volume adjustments (e.g. keyboard media keys) are respected while sliders remain idle, but bidirectional motor fader synchronization is not supported on standard potentiometers.
 
-2. **VerticalProgressBar uses LayoutTransform hack**: The vertical progress bar works by rotating a horizontal bar 270° and swapping width/height bindings. This is fragile and may break if the containing layout changes.
+2. **Process name matching is case-insensitive but process-based**: Process names like `chrome` or `svchost` may represent multiple executables. There is no friendly display name resolution (e.g. "Google Chrome" vs "chrome.exe").
 
-3. **Process name matching is case-insensitive but not robust**: Process names like `chrome` may represent multiple executables. There's no display name resolution — the user sees raw process names like `spotify`, `discord`, `msedge`.
+3. **Delimiter is hardcoded to `"|"`**: The `SerialSettings.Delimiter` property exists but is default set to `"|"` and not exposed in the UI.
 
-4. **Config is not auto-saved on every change**: The user must manually click "Save Settings" or rely on the auto-save at app exit. If the app crashes, unsaved changes are lost.
-
-5. **No visual feedback for device re-acquisition**: When `AudioService` re-acquires the device (after sleep/wake), there's no status message or UI indication to the user.
-
-6. **`ValueToBarBrushConverter` is a constant**: It always returns Blue 600 regardless of the input value. The brush key `ProgressBarBrush` in Styles.xaml actually uses `AccentPrimary` (teal), so the converter result is overridden by the style.
-
-7. **Delimiter is hardcoded to `"|"`**: The `SerialSettings.Delimiter` property exists but is always set to `"|"` and never exposed in the UI.
+4. **Automated testing**: Currently lacks unit and mock tests for serial wire packet parsing and audio calculations.
 
 ---
 
@@ -629,4 +622,33 @@ A standard GitHub Actions workflow file defines the automated build and release 
 2. Restores NuGet dependencies.
 3. Compiles both **Minimal** and **Bundled** configurations.
 4. Uploads the binaries as workflow artifacts (`Sliders-Minimal-win-x64` and `Sliders-Bundled-win-x64`).
+
+---
+
+## 20. Diagnostics, Troubleshooting & Logging Architecture
+
+The diagnostics infrastructure (`Sliders/Services/Logger.cs`) provides persistent, production-grade visibility into hardware and software subsystems:
+
+### 20.1 Storage & Reliability
+- **File Location**: `%AppData%\Sliders\sliders.log`
+- **Immediate Disk Flush**: `StreamWriter.AutoFlush = true` guarantees every log entry is committed to disk synchronously before the method returns. Critical diagnostic events are preserved if the OS shuts down unexpectedly or the process terminates abruptly.
+- **Log Rotation**: Rotates files at 5 MB thresholds on startup, keeping up to 3 historical backups (`sliders.1.log`, `sliders.2.log`, `sliders.3.log`). Total diagnostic disk footprint is capped at ~20 MB.
+- **Thread Safety**: All writes are synchronized across worker tasks and UI threads using a static synchronization lock (`_writeLock`).
+
+### 20.2 Severity Levels & CLI Debug Flags
+- **Runtime Filtering**: Four-tier `LogLevel` enum (`Debug = 0`, `Info = 1`, `Warn = 2`, `Error = 3`).
+- **Release Flexibility**: Debug builds default to `LogLevel.Debug`; Release builds default to `LogLevel.Info`.
+- **CLI Flag Override**: Launching with `--debug`, `-v`, or `--verbose` activates full `LogLevel.Debug` logging even in Release builds.
+
+### 20.3 Duplicate Flood Suppression
+Repeated identical log lines (such as continuous corrupted baud bursts or unreadable sessions) are collapsed using an in-memory repeat tracker, appending `"... and repeated N times"` rather than exhausting disk I/O.
+
+### 20.4 High-Frequency Audio Logging
+High-frequency volume dispatch logs (60 Hz per-slider movements) are emitted at `LogLevel.Debug`. In standard operational mode (`LogLevel.Info`), high-frequency serial and volume updates do not incur disk writes.
+
+### 20.5 User-Facing Access
+1. **Sidebar Footer**: A "Logs" button in the bottom sidebar invokes `OpenLogsCommand`, which shells out via `Process.Start` to the user's default text viewer (e.g. Notepad).
+2. **System Tray Context Menu**: Right-clicking the system tray icon exposes "View Logs".
+3. **Helper APIs**: `Logger.OpenLogFile()` and `Logger.OpenLogFolder()` provide programmatic access.
+
 

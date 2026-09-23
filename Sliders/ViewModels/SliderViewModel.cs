@@ -27,7 +27,14 @@ public class SliderViewModel : ObservableObject
     public string MappedTarget
     {
         get => _mappedTarget;
-        set => SetProperty(ref _mappedTarget, value ?? "");
+        set
+        {
+            if (SetProperty(ref _mappedTarget, value ?? ""))
+            {
+                OnPropertyChanged(nameof(DisplayLabel));
+                Sliders.Services.Logger.Info("SliderViewModel", $"Slider CH {SliderIndex} target changed to '{_mappedTarget}' ({DisplayLabel})");
+            }
+        }
     }
 
     /// <summary>Flip the slider direction (1023 = silent, 0 = max).</summary>

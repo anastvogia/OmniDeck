@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Interop;
 using Sliders.Helpers;
+using Sliders.ViewModels;
 using Log = Sliders.Services.Logger;
 
 namespace Sliders;
@@ -109,7 +110,27 @@ public partial class MainWindow : Window
             Log.Info("MainWindow", "Tray context menu: Open Sliders");
             RestoreWindow();
         };
+
+        var restartItem = new System.Windows.Forms.ToolStripMenuItem("Restart Services");
+        restartItem.Click += (s, e) =>
+        {
+            Log.Info("MainWindow", "Tray context menu: Restart Services");
+            if (DataContext is MainViewModel vm)
+            {
+                if (vm.RestartCommand.CanExecute(null))
+                {
+                    vm.RestartCommand.Execute(null);
+                }
+            }
+        };
         
+        var logsItem = new System.Windows.Forms.ToolStripMenuItem("View Logs");
+        logsItem.Click += (s, e) =>
+        {
+            Log.Info("MainWindow", "Tray context menu: View Logs");
+            Log.OpenLogFile();
+        };
+
         var exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit Application");
         exitItem.Click += (s, e) =>
         {
@@ -119,6 +140,8 @@ public partial class MainWindow : Window
         };
 
         contextMenu.Items.Add(openItem);
+        contextMenu.Items.Add(restartItem);
+        contextMenu.Items.Add(logsItem);
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         contextMenu.Items.Add(exitItem);
 

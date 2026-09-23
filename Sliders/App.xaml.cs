@@ -22,6 +22,15 @@ public partial class App : System.Windows.Application
     {
         // Initialize the logger FIRST so everything below is captured
         Log.Initialize();
+
+        if (e.Args.Any(a => a.Equals("--debug", StringComparison.OrdinalIgnoreCase) ||
+                            a.Equals("-v", StringComparison.OrdinalIgnoreCase) ||
+                            a.Equals("--verbose", StringComparison.OrdinalIgnoreCase)))
+        {
+            Log.MinimumLevel = LogLevel.Debug;
+            Log.Info("App", "Debug/Verbose logging enabled via command-line argument");
+        }
+
         Log.Info("App", "OnStartup begin");
 
         // Register global exception handlers to write logs and show a message box
@@ -81,7 +90,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<ISerialService, SerialService>();
         services.AddSingleton<IAudioService, AudioService>();
         services.AddSingleton<IConfigService, ConfigService>();
-        services.AddSingleton<IWindowFocusService, WindowFocusService>();
+        services.AddSingleton<IStartupService, StartupService>();
         services.AddSingleton<IProcessDiscoveryService, ProcessDiscoveryService>();
 
         // ViewModel
@@ -97,10 +106,8 @@ public partial class App : System.Windows.Application
         Log.Info("App", "Resolving services from DI");
         var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
         var viewModel = _serviceProvider.GetRequiredService<MainViewModel>();
-        var focusService = _serviceProvider.GetRequiredService<IWindowFocusService>();
 
         mainWindow.DataContext = viewModel;
-        focusService.Attach(mainWindow);
         Log.Info("App", $"LaunchMinimized={viewModel.LaunchMinimized}");
 
         if (!viewModel.LaunchMinimized)

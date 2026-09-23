@@ -50,10 +50,28 @@ public sealed class ConfigService : IConfigService
     public void Save(AppProfile profile)
     {
         Log.Info("ConfigService", $"Saving config to {ConfigPath}");
-        Directory.CreateDirectory(ConfigDir);
-        string json = JsonSerializer.Serialize(profile, JsonOptions);
-        File.WriteAllText(ConfigPath, json);
-        Log.Info("ConfigService", "Config saved");
+        try
+        {
+            Directory.CreateDirectory(ConfigDir);
+            string json = JsonSerializer.Serialize(profile, JsonOptions);
+            string tempPath = ConfigPath + ".tmp";
+            File.WriteAllText(tempPath, json);
+            File.Move(tempPath, ConfigPath, overwrite: true);
+            Log.Info("ConfigService", "Config saved successfully (atomic write)");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("ConfigService", "Failed to save config atomically, falling back to direct write", ex);
+            try
+            {
+                string json = JsonSerializer.Serialize(profile, JsonOptions);
+                File.WriteAllText(ConfigPath, json);
+            }
+            catch (Exception exDirect)
+            {
+                Log.Error("ConfigService", "Direct config write also failed", exDirect);
+            }
+        }
     }
 
     private static AppProfile CreateDefaults()

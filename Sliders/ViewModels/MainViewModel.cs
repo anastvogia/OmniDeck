@@ -10,22 +10,25 @@ using Log = Sliders.Services.Logger;
 namespace Sliders.ViewModels;
 
 /// <summary>
-/// Top-level ViewModel: owns the slider collection, wires the dual-gate
-/// (serial connected AND window active), and coordinates serial → audio flow.
+/// Top-level ViewModel: coordinates slider channels, serial input processing,
+/// audio volume dispatching, configuration persistence, and service lifecycles.
 /// </summary>
 public class MainViewModel : ObservableObject, IDisposable
 {
     private readonly ISerialService _serialService;
     private readonly IAudioService _audioService;
     private readonly IConfigService _configService;
+    private readonly IStartupService _startupService;
     private readonly IProcessDiscoveryService _processDiscovery;
-    private readonly IWindowFocusService _windowFocusService;
     private readonly System.Windows.Threading.DispatcherTimer _refreshTimer;
+
+    private DateTime _lastVolumeSetTime = DateTime.MinValue;
 
     // Throttle: discard serial frames arriving faster than ~60 fps
     private readonly Stopwatch _throttle = Stopwatch.StartNew();
     private const long ThrottleMs = 16;
     private int[]? _lastRawValues;
+    private DateTime _lastRawValuesLogTime = DateTime.MinValue;
 
     // ── Observable properties ───────────────────────────────────
 
@@ -40,17 +43,6 @@ public class MainViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(GateStatus));
                 RelayCommand.RaiseCanExecuteChanged();
             }
-        }
-    }
-
-    private bool _isActive;
-    public bool IsActive
-    {
-        get => _isActive;
-        private set
-        {
-            if (SetProperty(ref _isActive, value))
-                OnPropertyChanged(nameof(GateStatus));
         }
     }
 
@@ -87,7 +79,7 @@ public class MainViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _launchOnStartup, value))
             {
-                SetStartupRegistry(value);
+                _startupService.SetStartup(value);
             }
         }
     }
@@ -106,29 +98,6 @@ public class MainViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _autoConnect, value);
     }
 
-    private void SetStartupRegistry(bool enable)
-    {
-        try
-        {
-            const string KeyName = @"Software\Microsoft\Windows\CurrentVersion\Run";
-            string appPath = Environment.ProcessPath ?? "";
-            if (string.IsNullOrEmpty(appPath)) return;
-
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(KeyName, true);
-            if (key != null)
-            {
-                if (enable)
-                    key.SetValue("Sliders", $"\"{appPath}\"");
-                else
-                    key.DeleteValue("Sliders", false);
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[MainViewModel] Failed to set startup registry: {ex.Message}");
-        }
-    }
-
     public ObservableCollection<SliderViewModel> Sliders { get; } = new();
     public ObservableCollection<string> AvailablePorts { get; } = new();
 
@@ -143,6 +112,10 @@ public class MainViewModel : ObservableObject, IDisposable
     public ICommand SaveConfigCommand { get; }
     public ICommand MoveUpCommand { get; }
     public ICommand MoveDownCommand { get; }
+    public ICommand RestartCommand { get; }
+    public ICommand AddSliderCommand { get; }
+    public ICommand RemoveSliderCommand { get; }
+    public ICommand OpenLogsCommand { get; }
 
     // ── Constructor ─────────────────────────────────────────────
 
@@ -150,16 +123,16 @@ public class MainViewModel : ObservableObject, IDisposable
         ISerialService serialService,
         IAudioService audioService,
         IConfigService configService,
-        IProcessDiscoveryService processDiscovery,
-        IWindowFocusService windowFocusService)
+        IStartupService startupService,
+        IProcessDiscoveryService processDiscovery)
     {
         Log.Info("MainViewModel", "Constructor begin");
 
         _serialService = serialService;
         _audioService = audioService;
         _configService = configService;
+        _startupService = startupService;
         _processDiscovery = processDiscovery;
-        _windowFocusService = windowFocusService;
 
         // Commands
         ConnectCommand = new RelayCommand(OnConnect, () => !IsConnected && !string.IsNullOrEmpty(SelectedPort));
@@ -169,11 +142,14 @@ public class MainViewModel : ObservableObject, IDisposable
         SaveConfigCommand = new RelayCommand(OnSaveConfig);
         MoveUpCommand = new RelayCommand(param => OnMoveSlider(param, -1));
         MoveDownCommand = new RelayCommand(param => OnMoveSlider(param, +1));
+        RestartCommand = new RelayCommand(OnRestart);
+        AddSliderCommand = new RelayCommand(OnAddSlider);
+        RemoveSliderCommand = new RelayCommand(OnRemoveSlider);
+        OpenLogsCommand = new RelayCommand(OnOpenLogs);
 
         // Wire events
         _serialService.SliderValuesReceived += OnSliderValuesReceived;
         _serialService.Disconnected += OnSerialDisconnected;
-        _windowFocusService.ActiveStateChanged += OnWindowActiveChanged;
         Log.Info("MainViewModel", "Events wired");
 
         // Initialize
@@ -197,7 +173,8 @@ public class MainViewModel : ObservableObject, IDisposable
         };
         _refreshTimer.Tick += (s, e) => OnRefreshProcesses();
         _refreshTimer.Start();
-        Log.Info("MainViewModel", "Constructor complete — refresh timer started (4s interval)");
+
+        Log.Info("MainViewModel", "Constructor complete — process discovery refresh timer started (2s interval)");
     }
 
     // ── Config ──────────────────────────────────────────────────
@@ -210,6 +187,7 @@ public class MainViewModel : ObservableObject, IDisposable
         SelectedPort = profile.Serial.PortName;
         SelectedBaudRate = profile.Serial.BaudRate;
 
+        // Synchronize startup preference with registry
         LaunchOnStartup = profile.LaunchOnStartup;
         LaunchMinimized = profile.LaunchMinimized;
         AutoConnect = profile.AutoConnect;
@@ -221,7 +199,8 @@ public class MainViewModel : ObservableObject, IDisposable
             var vm = SliderViewModel.FromConfig(cfg);
             Sliders.Add(vm);
         }
-        Log.Info("MainViewModel", $"Loaded {Sliders.Count} slider(s)");
+        var mappings = string.Join(", ", Sliders.Select(s => $"CH {s.SliderIndex} -> '{s.MappedTarget}' ({s.DisplayLabel})"));
+        Log.Info("MainViewModel", $"Loaded {Sliders.Count} slider(s): [{mappings}]");
 
         OnRefreshProcesses();
     }
@@ -245,7 +224,50 @@ public class MainViewModel : ObservableObject, IDisposable
 
         _configService.Save(profile);
         StatusMessage = $"Configuration saved at {DateTime.Now:HH:mm:ss}";
-        Log.Info("MainViewModel", $"Config saved (Port={SelectedPort}, Baud={SelectedBaudRate}, {Sliders.Count} sliders)");
+        var mappings = string.Join(", ", Sliders.Select(s => $"CH {s.SliderIndex} -> '{s.MappedTarget}' ({s.DisplayLabel})"));
+        Log.Info("MainViewModel", $"Config saved: Port={SelectedPort}, Baud={SelectedBaudRate}, {Sliders.Count} sliders: [{mappings}]");
+    }
+
+    // ── Dynamic Slider Management ───────────────────────────────
+
+    private void OnAddSlider()
+    {
+        int nextIndex = 0;
+        var existingIndices = Sliders.Select(s => s.SliderIndex).ToHashSet();
+        while (existingIndices.Contains(nextIndex))
+        {
+            nextIndex++;
+        }
+
+        var newSlider = new SliderViewModel
+        {
+            SliderIndex = nextIndex,
+            DisplayOrder = Sliders.Count,
+            MappedTarget = ""
+        };
+
+        PopulateTargetsForSlider(newSlider, _processDiscovery.GetAudioProcessNames());
+        Sliders.Add(newSlider);
+        Log.Info("MainViewModel", $"Added slider channel CH {nextIndex}");
+        StatusMessage = $"Added slider CH {nextIndex}";
+    }
+
+    private void OnRemoveSlider(object? param)
+    {
+        if (param is not SliderViewModel slider)
+            return;
+
+        int index = Sliders.IndexOf(slider);
+        if (index >= 0)
+        {
+            Sliders.RemoveAt(index);
+            for (int i = 0; i < Sliders.Count; i++)
+            {
+                Sliders[i].DisplayOrder = i;
+            }
+            Log.Info("MainViewModel", $"Removed slider channel CH {slider.SliderIndex}");
+            StatusMessage = $"Removed slider CH {slider.SliderIndex}";
+        }
     }
 
     // ── Serial ──────────────────────────────────────────────────
@@ -312,18 +334,29 @@ public class MainViewModel : ObservableObject, IDisposable
         if (!_serialService.IsConnected)
             return;
 
+        if ((DateTime.UtcNow - _lastRawValuesLogTime).TotalSeconds >= 5.0)
+        {
+            _lastRawValuesLogTime = DateTime.UtcNow;
+            Log.Info("MainViewModel", $"Raw serial values: [{string.Join("|", rawValues)}]");
+        }
+
         // Throttle to ~60 fps
         if (_throttle.ElapsedMilliseconds < ThrottleMs)
             return;
         _throttle.Restart();
 
-        // Jitter / Redundancy Filter: only process if the raw values have actually changed
+        // Jitter / Redundancy Filter: only process if the raw values have changed by more than the threshold (noise gate)
+        // or if they hit physical limits (0 or 1023) to allow reaching absolute min/max volumes.
         bool changed = _lastRawValues == null || _lastRawValues.Length != rawValues.Length;
         if (!changed)
         {
+            const int JitterThreshold = 3;
             for (int i = 0; i < rawValues.Length; i++)
             {
-                if (_lastRawValues![i] != rawValues[i])
+                int diff = Math.Abs(_lastRawValues![i] - rawValues[i]);
+                if (diff > JitterThreshold || 
+                    (rawValues[i] == 0 && _lastRawValues[i] != 0) || 
+                    (rawValues[i] == 1023 && _lastRawValues[i] != 1023))
                 {
                     changed = true;
                     break;
@@ -369,15 +402,8 @@ public class MainViewModel : ObservableObject, IDisposable
                 slider.CurrentValue = normalized;
                 _audioService.SetVolume(target, normalized, explicitTargets);
             }
+            _lastVolumeSetTime = DateTime.UtcNow;
         });
-    }
-
-    // ── Window focus ────────────────────────────────────────────
-
-    private void OnWindowActiveChanged(bool active)
-    {
-        Log.Debug("MainViewModel", $"WindowActiveChanged: active={active}");
-        DispatcherHelper.BeginOnUI(() => IsActive = active);
     }
 
     // ── Process discovery ───────────────────────────────────────
@@ -389,52 +415,57 @@ public class MainViewModel : ObservableObject, IDisposable
 
         foreach (var slider in Sliders)
         {
-            var targets = slider.AvailableTargets;
-            string current = slider.MappedTarget;
-
-            // 1. Build the list of target strings that should be in the collection
-            var newTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "",
-                "master",
-                "active_window",
-                "active_not_mapped"
-            };
-            foreach (var name in processes)
-                newTargets.Add(name);
-
-            if (!string.IsNullOrEmpty(current) &&
-                current != "master" &&
-                current != "active_window" &&
-                current != "active_not_mapped")
-            {
-                newTargets.Add(current);
-            }
-
-            // 2. Remove items that are no longer needed, EXCEPT the current selection or built-ins
-            for (int i = targets.Count - 1; i >= 0; i--)
-            {
-                string t = targets[i];
-                if (t == current || t == "" || t == "master" || t == "active_window" || t == "active_not_mapped")
-                    continue;
-
-                if (!newTargets.Contains(t))
-                {
-                    targets.RemoveAt(i);
-                }
-            }
-
-            // 3. Add new running items that aren't already present
-            foreach (var t in newTargets)
-            {
-                if (!targets.Contains(t))
-                {
-                    targets.Add(t);
-                }
-            }
+            PopulateTargetsForSlider(slider, processes);
         }
 
         StatusMessage = $"Found {processes.Count} audio process(es)";
+    }
+
+    private static void PopulateTargetsForSlider(SliderViewModel slider, List<string> processes)
+    {
+        var targets = slider.AvailableTargets;
+        string current = slider.MappedTarget;
+
+        // 1. Build the list of target strings that should be in the collection
+        var newTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "",
+            "master",
+            "active_window",
+            "active_not_mapped"
+        };
+        foreach (var name in processes)
+            newTargets.Add(name);
+
+        if (!string.IsNullOrEmpty(current) &&
+            current != "master" &&
+            current != "active_window" &&
+            current != "active_not_mapped")
+        {
+            newTargets.Add(current);
+        }
+
+        // 2. Remove items that are no longer needed, EXCEPT the current selection or built-ins
+        for (int i = targets.Count - 1; i >= 0; i--)
+        {
+            string t = targets[i];
+            if (t == current || t == "" || t == "master" || t == "active_window" || t == "active_not_mapped")
+                continue;
+
+            if (!newTargets.Contains(t))
+            {
+                targets.RemoveAt(i);
+            }
+        }
+
+        // 3. Add new running items that aren't already present
+        foreach (var t in newTargets)
+        {
+            if (!targets.Contains(t))
+            {
+                targets.Add(t);
+            }
+        }
     }
 
     // ── Reorder ─────────────────────────────────────────────────
@@ -458,6 +489,99 @@ public class MainViewModel : ObservableObject, IDisposable
             Sliders[i].DisplayOrder = i;
     }
 
+    // ── Pipeline Restart ────────────────────────────────────────
+
+    public async Task RestartPipelineAsync()
+    {
+        Log.Info("MainViewModel", "RestartPipelineAsync starting");
+        _lastVolumeSetTime = DateTime.MinValue;
+        StatusMessage = "Restarting services...";
+
+        // 1. Disconnect serial
+        try
+        {
+            _serialService.Disconnect();
+            IsConnected = false;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainViewModel", "Error disconnecting serial service during restart", ex);
+        }
+
+        // 2. Dispose audio
+        try
+        {
+            _audioService.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainViewModel", "Error disposing audio service during restart", ex);
+        }
+
+        await Task.Delay(500);
+
+        // 3. Re-initialize audio
+        try
+        {
+            _audioService.Initialize();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainViewModel", "Error initializing audio service during restart", ex);
+        }
+
+        // 4. Refresh processes and COM ports
+        OnRefreshPorts();
+        OnRefreshProcesses();
+
+        // 5. Reconnect serial if we have a port
+        if (!string.IsNullOrEmpty(SelectedPort))
+        {
+            try
+            {
+                var settings = new SerialSettings
+                {
+                    PortName = SelectedPort,
+                    BaudRate = SelectedBaudRate,
+                    Delimiter = "|"
+                };
+                await _serialService.ConnectAsync(settings);
+                IsConnected = _serialService.IsConnected;
+                StatusMessage = IsConnected ? $"Restarted and connected to {SelectedPort}" : "Restarted but connection failed";
+            }
+            catch (Exception ex)
+            {
+                Log.Error("MainViewModel", "Failed to reconnect serial after restart", ex);
+                StatusMessage = $"Restarted; connection failed: {ex.Message}";
+            }
+        }
+        else
+        {
+            StatusMessage = "Restarted services (offline)";
+        }
+
+        Log.Info("MainViewModel", "RestartPipelineAsync complete");
+    }
+
+    private async void OnRestart()
+    {
+        Log.Info("MainViewModel", "OnRestart Command triggered");
+        try
+        {
+            await RestartPipelineAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("MainViewModel", "Failed to restart pipeline", ex);
+        }
+    }
+
+    private void OnOpenLogs()
+    {
+        Log.Info("MainViewModel", "Opening log file from user request");
+        Log.OpenLogFile();
+    }
+
     // ── Cleanup ─────────────────────────────────────────────────
 
     public void Dispose()
@@ -467,7 +591,6 @@ public class MainViewModel : ObservableObject, IDisposable
 
         _serialService.SliderValuesReceived -= OnSliderValuesReceived;
         _serialService.Disconnected -= OnSerialDisconnected;
-        _windowFocusService.ActiveStateChanged -= OnWindowActiveChanged;
 
         _serialService.Dispose();
         _audioService.Dispose();

@@ -1,7 +1,18 @@
-using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 
 namespace Sliders.Services;
+
+/// <summary>
+/// Log severity levels.
+/// </summary>
+public enum LogLevel
+{
+    Debug = 0,
+    Info = 1,
+    Warn = 2,
+    Error = 3
+}
 
 /// <summary>
 /// Thread-safe, auto-flushing file logger that writes to %AppData%\Sliders\sliders.log.
@@ -14,6 +25,15 @@ public static class Logger
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sliders");
 
     private static readonly string LogPath = Path.Combine(LogDir, "sliders.log");
+
+    public static string LogDirectory => LogDir;
+    public static string LogFilePath => LogPath;
+
+#if DEBUG
+    public static LogLevel MinimumLevel { get; set; } = LogLevel.Debug;
+#else
+    public static LogLevel MinimumLevel { get; set; } = LogLevel.Info;
+#endif
 
     private static readonly object _writeLock = new();
     private static StreamWriter? _writer;
@@ -59,34 +79,89 @@ public static class Logger
 
         Info("Logger", "=== Sliders session started ===");
         Info("Logger", $"Log file: {LogPath}");
-        Info("Logger", $"OS: {Environment.OSVersion}, CLR: {Environment.Version}, 64-bit: {Environment.Is64BitProcess}");
+        Info("Logger", $"OS: {Environment.OSVersion}, CLR: {Environment.Version}, 64-bit: {Environment.Is64BitProcess}, MinLogLevel: {MinimumLevel}");
     }
 
     /// <summary>Logs an informational event.</summary>
-    public static void Info(string source, string message) => Write("INFO", source, message);
+    public static void Info(string source, string message)
+    {
+        if (MinimumLevel <= LogLevel.Info)
+            Write("INFO", source, message);
+    }
 
     /// <summary>Logs a warning.</summary>
-    public static void Warn(string source, string message) => Write("WARN", source, message);
+    public static void Warn(string source, string message)
+    {
+        if (MinimumLevel <= LogLevel.Warn)
+            Write("WARN", source, message);
+    }
 
     /// <summary>Logs an error without an exception.</summary>
-    public static void Error(string source, string message) => Write("ERROR", source, message);
+    public static void Error(string source, string message)
+    {
+        if (MinimumLevel <= LogLevel.Error)
+            Write("ERROR", source, message);
+    }
 
     /// <summary>Logs an error with exception details.</summary>
     public static void Error(string source, string message, Exception ex)
     {
-        Write("ERROR", source, $"{message} | {ex.GetType().Name}: {ex.Message}");
-        if (ex.InnerException != null)
-            Write("ERROR", source, $"  InnerException: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
-        if (ex.StackTrace != null)
-            Write("TRACE", source, $"  StackTrace: {ex.StackTrace.Replace("\n", " | ")}");
+        if (MinimumLevel <= LogLevel.Error)
+        {
+            Write("ERROR", source, $"{message} | {ex.GetType().Name}: {ex.Message}");
+            if (ex.InnerException != null)
+                Write("ERROR", source, $"  InnerException: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+            if (ex.StackTrace != null)
+                Write("TRACE", source, $"  StackTrace: {ex.StackTrace.Replace("\n", " | ")}");
+        }
     }
 
     /// <summary>Logs a debug/trace-level message (verbose).</summary>
     public static void Debug(string source, string message)
     {
-#if DEBUG
-        Write("DEBUG", source, message);
-#endif
+        if (MinimumLevel <= LogLevel.Debug)
+            Write("DEBUG", source, message);
+    }
+
+    /// <summary>Opens the directory containing log files in Windows Explorer.</summary>
+    public static void OpenLogFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(LogDir);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = LogDir,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Error("Logger", "Failed to open log directory", ex);
+        }
+    }
+
+    /// <summary>Opens the current log file in the default text viewer (e.g., Notepad).</summary>
+    public static void OpenLogFile()
+    {
+        try
+        {
+            if (!File.Exists(LogPath))
+            {
+                Directory.CreateDirectory(LogDir);
+                File.WriteAllText(LogPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [INFO ] [Logger] Empty log created\n");
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = LogPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Error("Logger", "Failed to open log file", ex);
+        }
     }
 
     /// <summary>

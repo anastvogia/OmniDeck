@@ -57,34 +57,31 @@ public sealed class SerialService : ISerialService
         var token = _cts.Token;
         var delimiter = settings.Delimiter;
 
-        // Fire-and-forget the read loop on the thread pool
-        _ = Task.Run(() => ReadLoopAsync(delimiter, token), token);
+        // Run the read loop on a dedicated thread pool task
+        _ = Task.Run(() => ReadLoop(delimiter, token), token);
         Log.Info("SerialService", "Read loop started on thread pool");
 
         return Task.CompletedTask;
     }
 
-    private async Task ReadLoopAsync(string delimiter, CancellationToken ct)
+    private void ReadLoop(string delimiter, CancellationToken ct)
     {
         Log.Info("SerialService", "ReadLoop started");
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                // SerialPort.ReadLine() blocks — wrap in Task.Run so cancellation still works
-                string? line = await Task.Run(() =>
+                string? line;
+                try
                 {
-                    try
-                    {
-                        return _port?.ReadLine();
-                    }
-                    catch (TimeoutException)
-                    {
-                        return null; // Retry on next iteration
-                    }
-                }, ct);
+                    line = _port?.ReadLine();
+                }
+                catch (TimeoutException)
+                {
+                    continue; // Timeout occurred, loop back to check ct and continue
+                }
 
-                if (line is null)
+                if (string.IsNullOrWhiteSpace(line))
                     continue;
 
                 var parts = line.Trim().Split(delimiter);
@@ -96,7 +93,7 @@ public sealed class SerialService : ISerialService
                     if (!int.TryParse(parts[i], out int v) || v < 0 || v > 1023)
                     {
                         valid = false;
-                        Log.Debug("SerialService", $"Invalid serial data: '{line.Trim()}'");
+                        Log.Warn("SerialService", $"Invalid serial data frame: '{line.Trim()}' (expected integers 0-1023 separated by '{delimiter}')");
                         break;
                     }
                     values[i] = v;
@@ -114,11 +111,14 @@ public sealed class SerialService : ISerialService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            // Port disconnected or USB yanked
-            Log.Error("SerialService", "ReadLoop terminated (port disconnected?)", ex);
-            Debug.WriteLine($"[SerialService] Read loop terminated: {ex.Message}");
-            _isConnected = false;
-            Disconnected?.Invoke();
+            // Port disconnected, closed or USB yanked
+            if (!ct.IsCancellationRequested)
+            {
+                Log.Error("SerialService", "ReadLoop terminated (port disconnected?)", ex);
+                Debug.WriteLine($"[SerialService] Read loop terminated: {ex.Message}");
+                _isConnected = false;
+                Disconnected?.Invoke();
+            }
         }
         Log.Info("SerialService", "ReadLoop exited");
     }

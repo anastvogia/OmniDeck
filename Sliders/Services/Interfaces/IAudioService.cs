@@ -24,4 +24,8 @@ public interface IAudioService : IDisposable
 
     /// <summary>Rebuilds the internal session cache from WASAPI.</summary>
     void RefreshSessionCache();
+
+    /// <summary>Returns the volume level for a given target, or null if target is not active/valid.</summary>
+    float? GetVolume(string target, IReadOnlyList<string> explicitlyMappedTargets);
 }
+

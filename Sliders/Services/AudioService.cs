@@ -22,10 +22,8 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
 
     // Process name (lowercase, no .exe) → active audio sessions
     private readonly Dictionary<string, List<AudioSessionControl>> _sessionCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _cacheLock = new();
-
-    // Guards _device and _enumerator replacement during device change events
-    private readonly object _deviceLock = new();
+    private readonly object _lock = new();
+    private readonly HashSet<string> _lastLoggedProcesses = new(StringComparer.OrdinalIgnoreCase);
 
     private DateTime _lastRefreshTime = DateTime.MinValue;
     private static readonly TimeSpan CacheRefreshThrottle = TimeSpan.FromSeconds(2);
@@ -49,6 +47,15 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
             // re-acquire the endpoint when the default device changes.
             _enumerator.RegisterEndpointNotificationCallback(this);
 
+            try
+            {
+                _device.AudioSessionManager.OnSessionCreated += OnSessionCreatedHandler;
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("AudioService", $"Could not register OnSessionCreated: {ex.Message}");
+            }
+
             RefreshSessionCache();
             Log.Info("AudioService", "Initialize complete");
         }
@@ -68,11 +75,20 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
         }
     }
 
+    private void OnSessionCreatedHandler(object sender, IAudioSessionControl newSession)
+    {
+        Log.Debug("AudioService", "New audio session created, scheduling session cache refresh");
+        DispatcherHelper.BeginOnUI(() =>
+        {
+            RefreshSessionCache();
+        });
+    }
+
     public void RefreshSessionCache()
     {
-        lock (_cacheLock)
+        lock (_lock)
         {
-            RefreshSessionCacheInternal(acquireNewDevice: true);
+            RefreshSessionCacheInternal();
         }
     }
 
@@ -107,12 +123,115 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
         }
     }
 
+    public float? GetVolume(string target, IReadOnlyList<string> explicitlyMappedTargets)
+    {
+        target ??= "";
+        switch (target.ToLowerInvariant())
+        {
+            case "":
+                return null;
+
+            case "master":
+                return GetMasterVolume();
+
+            case "active_window":
+                return GetActiveWindowVolumeForQuery(explicitlyMappedTargets, forceAlways: true);
+
+            case "active_not_mapped":
+                return GetActiveWindowVolumeForQuery(explicitlyMappedTargets, forceAlways: false);
+
+            default:
+                return GetProcessVolume(target);
+        }
+    }
+
+    private float? GetMasterVolume()
+    {
+        lock (_lock)
+        {
+            if (_device is null) return null;
+            try
+            {
+                return _device.AudioEndpointVolume.MasterVolumeLevelScalar;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("AudioService", "Failed to get master volume", ex);
+                return null;
+            }
+        }
+    }
+
+    private float? GetProcessVolume(string processName)
+    {
+        if (processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            processName = processName.Substring(0, processName.Length - 4);
+
+        lock (_lock)
+        {
+            if (_sessionCache.TryGetValue(processName, out var sessions) && sessions != null && sessions.Count > 0)
+            {
+                foreach (var session in sessions)
+                {
+                    try
+                    {
+                        return session.SimpleAudioVolume.Volume;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("AudioService", $"  Failed to get volume for '{processName}' (PID {session.GetProcessID}): {ex.Message}");
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private float? GetActiveWindowVolumeForQuery(IReadOnlyList<string> explicitlyMappedTargets, bool forceAlways)
+    {
+        try
+        {
+            IntPtr hwnd = NativeMethods.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero) return null;
+
+            NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+            if (pid == 0) return null;
+
+            string processName = GetProcessNameFromPid(pid).ToLowerInvariant();
+
+            if (processName.Equals(OwnProcessName, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (!forceAlways)
+            {
+                foreach (var mapped in explicitlyMappedTargets)
+                {
+                    if (string.IsNullOrEmpty(mapped))
+                        continue;
+
+                    string cleanMapped = mapped.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        ? mapped.Substring(0, mapped.Length - 4)
+                        : mapped;
+
+                    if (cleanMapped.Equals(processName, StringComparison.OrdinalIgnoreCase))
+                        return null;
+                }
+            }
+
+            return GetProcessVolume(processName);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("AudioService", $"GetActiveWindowVolumeForQuery failed: {ex.Message}");
+            return null;
+        }
+    }
+
     public List<string> GetActiveAudioProcesses()
     {
-        RefreshSessionCache();
-
-        lock (_cacheLock)
+        lock (_lock)
         {
+            RefreshSessionCacheInternal();
             return _sessionCache.Keys
                 .Where(name => !name.Equals(OwnProcessName, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(name => name)
@@ -129,13 +248,35 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
     /// </summary>
     void IMMNotificationClient.OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
     {
-        // We only care about render (playback) device changes
-        if (flow != DataFlow.Render)
+        // We only care about render (playback) device changes and the Multimedia role
+        if (flow != DataFlow.Render || role != Role.Multimedia)
             return;
 
         Log.Info("AudioService", $"OnDefaultDeviceChanged: newDeviceId={defaultDeviceId}, role={role}");
         Debug.WriteLine($"[AudioService] Default device changed → {defaultDeviceId}, re-acquiring endpoint");
-        ReacquireDevice();
+
+        // Dispatch to the UI thread to avoid COM cross-apartment marshalling deadlocks.
+        // The UI thread owns the NAudio COM objects and will execute this callback safely.
+        DispatcherHelper.BeginOnUI(() =>
+        {
+            bool shouldReacquire = false;
+            lock (_lock)
+            {
+                if (_device == null || !string.Equals(_device.ID, defaultDeviceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    shouldReacquire = true;
+                }
+                else
+                {
+                    Log.Info("AudioService", "New default device matches current device, skipping reacquire");
+                }
+            }
+
+            if (shouldReacquire)
+            {
+                ReacquireDevice();
+            }
+        });
     }
 
     /// <summary>
@@ -145,36 +286,38 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
     {
         Log.Info("AudioService", $"OnDeviceStateChanged: deviceId={deviceId}, newState={newState}");
 
-        // If the currently held device was the one whose state changed,
-        // re-acquire in case it was invalidated.
-        lock (_deviceLock)
+        // Dispatch to the UI thread to avoid COM cross-apartment marshalling deadlocks.
+        // The UI thread owns the NAudio COM objects and will execute this callback safely.
+        DispatcherHelper.BeginOnUI(() =>
         {
-            if (_device != null)
+            bool shouldReacquire = false;
+            lock (_lock)
             {
-                try
+                if (_device != null)
                 {
-                    string currentId = _device.ID;
-                    if (string.Equals(currentId, deviceId, StringComparison.OrdinalIgnoreCase)
-                        && newState != DeviceState.Active)
+                    try
                     {
-                        Log.Warn("AudioService", $"Current device state changed to {newState}, re-acquiring endpoint");
-                        Debug.WriteLine($"[AudioService] Current device state changed to {newState}, re-acquiring endpoint");
+                        string currentId = _device.ID;
+                        if (string.Equals(currentId, deviceId, StringComparison.OrdinalIgnoreCase)
+                            && newState != DeviceState.Active)
+                        {
+                            Log.Warn("AudioService", $"Current device state changed to {newState}, re-acquiring endpoint");
+                            shouldReacquire = true;
+                        }
                     }
-                    else
+                    catch
                     {
-                        return; // Not our device, or it's still active
+                        Log.Warn("AudioService", "Current device invalidated (state change), re-acquiring endpoint");
+                        shouldReacquire = true;
                     }
-                }
-                catch
-                {
-                    // Device already invalidated — fall through to re-acquire
-                    Log.Warn("AudioService", "Current device invalidated (state change), re-acquiring endpoint");
-                    Debug.WriteLine("[AudioService] Current device invalidated (state change), re-acquiring endpoint");
                 }
             }
-        }
 
-        ReacquireDevice();
+            if (shouldReacquire)
+            {
+                ReacquireDevice();
+            }
+        });
     }
 
     // These notification callbacks are not relevant but must be implemented
@@ -198,13 +341,20 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
     private void ReacquireDevice()
     {
         Log.Info("AudioService", "ReacquireDevice begin");
-        lock (_deviceLock)
+        lock (_lock)
         {
-            // Dispose cached sessions first (they belong to the old device)
-            lock (_cacheLock)
+            // Unhook old session manager event if possible
+            try
             {
-                ClearSessionCacheUnsafe();
+                if (_device != null)
+                {
+                    _device.AudioSessionManager.OnSessionCreated -= OnSessionCreatedHandler;
+                }
             }
+            catch { }
+
+            // Dispose cached sessions first (they belong to the old device)
+            ClearSessionCacheUnsafe();
 
             // Dispose the old device
             try { _device?.Dispose(); } catch { }
@@ -213,9 +363,22 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
             // Re-acquire the current default endpoint
             try
             {
-                _device = _enumerator?.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                _enumerator ??= new MMDeviceEnumerator();
+                _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
                 Log.Info("AudioService", $"Re-acquired default device: {_device?.FriendlyName ?? "(null)"}");
                 Debug.WriteLine($"[AudioService] Re-acquired default device: {_device?.FriendlyName ?? "(null)"}");
+
+                if (_device != null)
+                {
+                    try
+                    {
+                        _device.AudioSessionManager.OnSessionCreated += OnSessionCreatedHandler;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Debug("AudioService", $"Could not hook OnSessionCreated on reacquired device: {ex.Message}");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -224,16 +387,16 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
                 Debug.WriteLine($"[AudioService] No default audio device available: {ex.Message}");
                 return;
             }
-        }
 
-        // Rebuild the session cache against the new device
-        RefreshSessionCache();
+            // Rebuild the session cache against the new device
+            RefreshSessionCacheInternal();
+        }
         Log.Info("AudioService", "ReacquireDevice complete");
     }
 
     private void SetMasterVolume(float level)
     {
-        lock (_deviceLock)
+        lock (_lock)
         {
             if (_device is null) return;
 
@@ -255,9 +418,19 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
         if (processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             processName = processName.Substring(0, processName.Length - 4);
 
-        lock (_cacheLock)
+        lock (_lock)
         {
-            if (_sessionCache.TryGetValue(processName, out var sessions))
+            bool found = _sessionCache.TryGetValue(processName, out var sessions);
+            if (!found || sessions == null || sessions.Count == 0)
+            {
+                // Refresh sessions once to capture recently opened applications
+                RefreshSessionCacheInternal();
+                found = _sessionCache.TryGetValue(processName, out sessions);
+            }
+
+            Log.Debug("AudioService", $"SetProcessVolume: '{processName}' (level={level:F3}) -> found in cache: {found}, count={sessions?.Count ?? 0}");
+
+            if (found && sessions != null)
             {
                 foreach (var session in sessions)
                 {
@@ -267,7 +440,7 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
                     }
                     catch (Exception ex)
                     {
-                        Log.Warn("AudioService", $"Failed to set volume for '{processName}': {ex.Message}");
+                        Log.Warn("AudioService", $"  Failed to set volume for '{processName}' (PID {session.GetProcessID}): {ex.Message}");
                         Debug.WriteLine($"[AudioService] Failed to set volume for '{processName}': {ex.Message}");
                     }
                 }
@@ -316,10 +489,10 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
         }
     }
 
-    /// <summary>Refresh without taking the lock (caller must hold _cacheLock).</summary>
+    /// <summary>Refresh without taking the lock (caller must hold _lock).</summary>
     private void RefreshSessionCacheUnsafe()
     {
-        RefreshSessionCacheInternal(acquireNewDevice: true);
+        RefreshSessionCacheInternal();
     }
 
     private static string? GetProcessNameFromSessionIdentifier(string identifier)
@@ -435,19 +608,23 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
         return name;
     }
 
-    private void RefreshSessionCacheInternal(bool acquireNewDevice)
+    private void RefreshSessionCacheInternal()
     {
         _lastRefreshTime = DateTime.UtcNow;
 
-        lock (_deviceLock)
+        lock (_lock)
         {
-            if (acquireNewDevice && _device == null)
+            if (_device == null)
             {
                 try
                 {
                     _enumerator ??= new MMDeviceEnumerator();
                     _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                    Log.Info("AudioService", $"Acquired default device: {_device.FriendlyName}");
+                    if (_device != null)
+                    {
+                        try { _device.AudioSessionManager.OnSessionCreated += OnSessionCreatedHandler; } catch { }
+                        Log.Info("AudioService", $"Acquired default device: {_device.FriendlyName}");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -457,14 +634,20 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
 
             if (_device is null) return;
 
-            lock (_cacheLock)
-            {
-                ClearSessionCacheUnsafe();
-            }
+            ClearSessionCacheUnsafe();
 
             try
             {
                 var sessionManager = _device.AudioSessionManager;
+                try
+                {
+                    sessionManager.RefreshSessions();
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug("AudioService", $"RefreshSessions note: {ex.Message}");
+                }
+
                 var sessions = sessionManager.Sessions;
 
                 for (int i = 0; i < sessions.Count; i++)
@@ -486,21 +669,30 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
 
                         name = name.ToLowerInvariant();
 
-                        lock (_cacheLock)
+                        if (!_sessionCache.TryGetValue(name, out var list))
                         {
-                            if (!_sessionCache.TryGetValue(name, out var list))
-                            {
-                                list = new List<AudioSessionControl>();
-                                _sessionCache.Add(name, list);
-                            }
-                            list.Add(session);
+                            list = new List<AudioSessionControl>();
+                            _sessionCache.Add(name, list);
                         }
+                        list.Add(session);
                     }
                     catch (Exception ex)
                     {
                         Log.Warn("AudioService", $"Failed to process session at index {i}: {ex.Message}");
                         session.Dispose();
                     }
+                }
+
+                var currentProcesses = _sessionCache.Keys.OrderBy(n => n).ToList();
+                bool processesChanged = currentProcesses.Count != _lastLoggedProcesses.Count || !currentProcesses.SequenceEqual(_lastLoggedProcesses);
+                if (processesChanged)
+                {
+                    _lastLoggedProcesses.Clear();
+                    foreach (var name in currentProcesses)
+                    {
+                        _lastLoggedProcesses.Add(name);
+                    }
+                    Log.Info("AudioService", $"Active audio processes: {string.Join(", ", currentProcesses)}");
                 }
 
                 Log.Debug("AudioService", $"RefreshSessionCacheInternal complete: {_sessionCache.Count} process(es) cached");
@@ -535,13 +727,24 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
             try { _enumerator.UnregisterEndpointNotificationCallback(this); } catch { }
         }
 
-        lock (_cacheLock)
+        try
+        {
+            if (_device != null)
+            {
+                _device.AudioSessionManager.OnSessionCreated -= OnSessionCreatedHandler;
+            }
+        }
+        catch { }
+
+        lock (_lock)
         {
             ClearSessionCacheUnsafe();
         }
 
-        _device?.Dispose();
-        _enumerator?.Dispose();
+        try { _device?.Dispose(); } catch { }
+        _device = null;
+        try { _enumerator?.Dispose(); } catch { }
+        _enumerator = null;
         Log.Info("AudioService", "Dispose complete");
     }
 }
