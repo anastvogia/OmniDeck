@@ -1,66 +1,94 @@
-# OmniDeck
+﻿﻿# OmniDeck
 
-**OmniDeck** is a Windows utility (.NET 8 WPF) that maps physical sliders (from an Arduino/USB serial device) to Windows audio volume controls. It supports master volume, active-window volume, and per-process audio mixing.
+**OmniDeck** is a modern Windows utility (.NET 8 WPF) that maps physical sliders (from an Arduino/USB serial device) to Windows audio volume controls. It supports master volume, active-window volume, and per-process audio mixing with a real-time visual interface.
 
 ---
 
-## 🏗️ Building and Compiling
+## 🛠️ Building and Compiling
 
 The project includes a unified build pipeline to compile and pack the application in two target formats:
-1. **Minimal Build**: A lightweight, framework-dependent single executable. It requires the [.NET 8.0 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) to be installed on the target machine.
-2. **Bundled Build**: A fully self-contained single executable. It includes the entire .NET 8.0 runtime and native WPF libraries, so it runs on any 64-bit Windows PC without requiring any pre-installed framework.
+1. **Minimal Build**: A lightweight, framework-dependent single executable (~1 MB). Requires the [.NET 8.0 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) installed on the target machine.
+2. **Bundled Build**: A fully self-contained single executable (~155 MB). Includes the entire .NET 8.0 runtime and native WPF libraries; runs out-of-the-box on any 64-bit Windows PC without requiring any prior installations.
 
 ### Prerequisites
 - [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) installed on your system.
 
 ### Option A: Local Build Script (Recommended)
-We have provided an automated PowerShell script `build.ps1` in the root directory. It stops any running instances of OmniDeck (to prevent file lock errors), cleans previous outputs, and publishes both versions.
+An automated PowerShell script uild.ps1 is provided in the repository root. It stops running instances of OmniDeck, cleans previous outputs, and publishes both versions.
 
-To run it:
-1. Open PowerShell in the root directory.
-2. Execute the script:
-   ```powershell
-   ./build.ps1
-   ```
-3. Once completed, the outputs will be located in the `publish/` directory:
-   - **Minimal**: `publish/minimal/OmniDeck.exe` (~1.0 MB)
-   - **Bundled**: `publish/bundled/OmniDeck.exe` (~155 MB)
+`powershell
+./build.ps1
+`
+
+Once completed, the outputs will be located in the publish/ directory:
+- **Minimal**: publish/minimal/OmniDeck.exe
+- **Bundled**: publish/bundled/OmniDeck.exe
 
 ### Option B: Manual CLI Build
-If you prefer running the commands manually:
+If you prefer running standard dotnet CLI commands:
 
-* **For Minimal Build:**
-  ```bash
+* **Minimal Build:**
+  `ash
   dotnet publish OmniDeck/OmniDeck.csproj -c Release -r win-x64 --self-contained false -o publish/minimal -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true
-  ```
+  `
 
-* **For Bundled Build:**
-  ```bash
+* **Bundled Build:**
+  `ash
   dotnet publish OmniDeck/OmniDeck.csproj -c Release -r win-x64 --self-contained true -o publish/bundled -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true
-  ```
+  `
 
 ---
 
 ## 🚀 How to Run the App
 
-1. Navigate to the published directory of your choice (`publish/minimal` or `publish/bundled`).
-2. Run the `OmniDeck.exe` executable.
+1. Navigate to the published directory of your choice (publish/minimal or publish/bundled).
+2. Run OmniDeck.exe.
 3. **Application Setup**:
-   - In the left sidebar under **Connection**, select the appropriate **Serial Port** (e.g. `COM3` or `COM4` corresponding to your Arduino).
-   - Choose the matching **Baud Rate** (typically `9600`).
+   - In the left sidebar under **Connection**, select your **Serial Port** (e.g. COM6).
+   - Select the matching **Baud Rate** (typically 9600).
    - Click **Connect**.
-   - Under **Volume Mixing Deck**, map your physical slider channels (e.g., `CH 0`, `CH 1`) to targets:
-     - `master`: Global system volume.
-     - `active_window`: Current active foreground application.
-     - `active_not_mapped`: Foreground application, unless it is already explicitly assigned to another slider.
-     - Any running application (e.g. `spotify.exe`, `discord.exe`, `chrome.exe`).
+   - Under **Volume Mixing Deck**, map your physical slider channels (e.g., CH 0, CH 1) to targets:
+     - master: Global system volume.
+     - ctive_window: Current active foreground application.
+     - ctive_not_mapped: Foreground application, unless it is already explicitly assigned to another slider.
+     - Any running application (e.g. spotify.exe, discord.exe, chrome.exe).
    - Click **Save Settings** to persist the configuration.
 
 > [!NOTE]
-> **Single Instance Policy**: OmniDeck enforces a single running instance. If you try to run another instance of `OmniDeck.exe` while one is already running, the new instance will broadcast a message to bring the existing window to the foreground and then exit immediately.
+> **Single Instance Policy**: OmniDeck enforces a single running instance. If you run another instance of OmniDeck.exe, the new instance will signal the existing window to restore to the foreground and then exit immediately.
 
 ---
 
-## ⚙️ CI/CD Pipeline
+## 🔄 CI/CD Pipeline
 
-A standard GitHub Actions CI/CD configuration is available at `.github/workflows/build.yml`. On every push or pull request to `main`/`master`, it restores dependencies, compiles both versions, and packages them as downloadable build artifacts (`OmniDeck-Minimal-win-x64` and `OmniDeck-Bundled-win-x64`).
+A GitHub Actions CI/CD configuration is available at .github/workflows/build.yml. On every push or pull request to main, it restores dependencies, compiles both versions, and packages them as downloadable build artifacts (OmniDeck-Minimal-win-x64 and OmniDeck-Bundled-win-x64).
+
+---
+
+## 🔌 Arduino Firmware
+
+The firmware sketch is located at [firmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino).
+
+> [!IMPORTANT]
+> **Hardware Compatibility**: The firmware is **only compatible with native USB / HID-capable Arduinos** (e.g. **Arduino Micro**, **Arduino Leonardo**, **SparkFun/Clone Pro Micro**, or other **ATmega32U4 / SAMD** microcontrollers featuring native USB). Standard boards with external USB-to-UART chips (such as Arduino Uno or Nano) are not supported.
+
+### Setup & Flashing
+1. Open [firmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino) in the **Arduino IDE**.
+2. Connect your slide potentiometers (e.g. 10kΩ linear):
+   - **VCC** (Outer pin 1) → **5V**
+   - **GND** (Outer pin 2) → **GND**
+   - **Wiper** (Middle pin) → **A0, A1, A2, A3** (or customize SLIDER_PINS in the sketch)
+3. Under **Tools**, select your board (e.g. **Arduino Micro**) and port, then click **Upload**.
+4. Open **OmniDeck**, select the COM port at 9600 baud, and click **Connect**.
+
+---
+
+## 🙏 Inspiration & Acknowledgments
+
+This project was inspired by the [deej](https://github.com/omriharel/deej) project by Omri Harel.
+
+While **OmniDeck** shares the vision of physical hardware volume control, **all code in this repository is 100% original and written from scratch** (not copied or forked). OmniDeck was built to address specific limitations and personal workflow needs, offering:
+- **Modern WPF GUI**: Real-time visual feedback, sleek dark theme, and interactive slider calibration instead of manual YAML configuration files.
+- **Dynamic Channel Management**: Add, remove, invert, and reorder slider channels on the fly.
+- **Process Auto-Discovery**: Automatic live detection of running audio sessions without needing to look up process executables.
+- **Native Windows Integration**: System tray minimization, single-instance IPC, and seamless Windows startup registration.

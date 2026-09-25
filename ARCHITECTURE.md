@@ -1,10 +1,12 @@
-# OmniDeck — Architecture & Codebase Reference
+﻿# OmniDeck — Architecture & Codebase Reference
 
 > **Purpose of this document**: Provide enough detail for any developer or AI agent to understand every layer of the application and make changes at the deepest level without ambiguity.
 
 ---
 
 ## 1. Project Overview
+
+> **Inspiration**: OmniDeck was inspired by Omri Harel''s [deej](https://github.com/omriharel/deej) project. All code in this repository is 100% original and custom-built from scratch to address personal workflow needs (such as a full interactive WPF GUI, dynamic channel reordering, and integrated Windows tray management).
 
 **OmniDeck** is a WPF desktop application (.NET 8, Windows-only) that bridges physical slider hardware (Arduino-based, connected via USB serial) to Windows per-application audio volume control (via WASAPI / NAudio). It functions as a hardware audio mixing console — each physical slider maps to a target (master volume, a specific process, or the active window) and adjusts its volume in real time.
 
@@ -234,6 +236,8 @@ All services are registered as **singletons** in the DI container. There is exac
 - `_isConnected` (`volatile bool`) — connection state flag
 
 **Read loop** (`ReadLoop`): Runs on a dedicated ThreadPool thread via `Task.Run()`. Reads lines synchronously from the serial port, parses `|`-delimited integers, validates each is 0–1023, and fires `SliderValuesReceived(int[])` without nested task allocations.
+
+**Hardware requirement**: OmniDeck firmware requires a native USB / HID-capable Arduino (e.g. Arduino Micro, Leonardo, Pro Micro with ATmega32U4 / SAMD architecture).
 
 **Wire protocol**: The Arduino sends newline-terminated lines of `|`-separated integers. Example: `"512|1023|0|768\n"`. Each integer represents a 10-bit ADC reading (0–1023) from one physical slider.
 
@@ -650,5 +654,6 @@ High-frequency volume dispatch logs (60 Hz per-slider movements) are emitted at 
 1. **Sidebar Footer**: A "Logs" button in the bottom sidebar invokes `OpenLogsCommand`, which shells out via `Process.Start` to the user's default text viewer (e.g. Notepad).
 2. **System Tray Context Menu**: Right-clicking the system tray icon exposes "View Logs".
 3. **Helper APIs**: `Logger.OpenLogFile()` and `Logger.OpenLogFolder()` provide programmatic access.
+
 
 

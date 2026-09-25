@@ -93,3 +93,4 @@ if (Test-Path $bundledExe) {
     Write-Host "  Note:     Fully self-contained. Runs on any 64-bit Windows PC."
 }
 Write-Host "=============================================" -ForegroundColor Cyan
+
