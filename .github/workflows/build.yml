@@ -3,6 +3,8 @@ name: Build and Publish OmniDeck
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -10,6 +12,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout Code
@@ -26,10 +30,12 @@ jobs:
     - name: Publish Minimal Version (Framework Dependent)
       run: |
         dotnet publish OmniDeck/OmniDeck.csproj -c Release -r win-x64 --self-contained false -o publish/minimal -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true
+        Copy-Item publish/minimal/OmniDeck.exe publish/OmniDeck-Minimal.exe
 
     - name: Publish Bundled Version (Self Contained)
       run: |
         dotnet publish OmniDeck/OmniDeck.csproj -c Release -r win-x64 --self-contained true -o publish/bundled -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true
+        Copy-Item publish/bundled/OmniDeck.exe publish/OmniDeck-Bundled.exe
 
     - name: Upload Minimal Artifact
       uses: actions/upload-artifact@v4
@@ -42,3 +48,27 @@ jobs:
       with:
         name: OmniDeck-Bundled-win-x64
         path: publish/bundled/
+
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          publish/OmniDeck-Minimal.exe
+          publish/OmniDeck-Bundled.exe
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        body: |
+          ### 📦 Which version should I download?
+
+          - **OmniDeck-Bundled.exe (~155 MB) [Recommended]**
+            - Fully self-contained with all .NET 8 runtimes and native libraries included.
+            - **Runs out-of-the-box on any 64-bit Windows PC** with zero prerequisites.
+
+          - **OmniDeck-Minimal.exe (~1 MB)**
+            - Ultra-lightweight build.
+            - Requires the [.NET 8.0 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) to be installed on your machine.
+
+          ---
+          > **Windows SmartScreen Notice**: On first launch, Windows may show an *Unrecognized app* prompt. Click **More info** → **Run anyway**.

@@ -61,17 +61,22 @@ If you prefer running standard dotnet CLI commands:
 > [!NOTE]
 > **Single Instance Policy**: OmniDeck enforces a single running instance. If you run another instance of OmniDeck.exe, the new instance will signal the existing window to restore to the foreground and then exit immediately.
 
+> [!TIP]
+> **Windows SmartScreen Notice**: Because OmniDeck is an open-source tool without a paid commercial certificate, Windows Defender SmartScreen may display an *Unrecognized app* notice on first launch. Click **More info** → **Run anyway**. All source code and build pipelines are 100% open and inspectable right here on GitHub.
+
 ---
 
-## 🔄 CI/CD Pipeline
+## 🔄 CI/CD & Automated Releases
 
-A GitHub Actions CI/CD configuration is available at .github/workflows/build.yml. On every push or pull request to main, it restores dependencies, compiles both versions, and packages them as downloadable build artifacts (OmniDeck-Minimal-win-x64 and OmniDeck-Bundled-win-x64).
+A complete GitHub Actions CI/CD pipeline is configured in [.github/workflows/build.yml](.github/workflows/build.yml):
+- **On every push or pull request**: Restores dependencies, verifies compilation, and packages test builds in the **Actions** tab.
+- **Automated Releases**: Pushing a version tag (e.g. git tag v1.0.0; git push origin v1.0.0) automatically compiles both builds and publishes a new entry on the [GitHub Releases](../../releases) page with OmniDeck-Minimal.exe and OmniDeck-Bundled.exe attached.
 
 ---
 
 ## 🎛️ Physical Deck & Hardware Options
 
-OmniDeck is completely agnostic regarding the physical enclosure and build—as long as your sliders output a standard 0–5V analog voltage to your Arduino, the construction and design are entirely up to your imagination:
+OmniDeck is completely agnostic regarding the physical enclosure and build — as long as your sliders output a standard 0–5V analog voltage to your Arduino, the construction and design are entirely up to your imagination:
 
 - **3D Printed Enclosures**: The most popular and ergonomic approach. You can 3D print an angled desktop console or wedge with cutouts matching your exact fader travel length (e.g., 45mm, 60mm, or 100mm faders) and custom slide knobs.
 - **DIY Enclosures**: Off-the-shelf plastic project boxes, laser-cut acrylic plates, machined aluminum, woodcraft, or even simple cardboard prototyping.
@@ -80,8 +85,8 @@ OmniDeck is completely agnostic regarding the physical enclosure and build—as 
   - **Microcontroller**: Any native USB / HID-capable Arduino (e.g. **Arduino Micro**, **Pro Micro** with ATmega32U4).
   - **Wiring**: Simple 3-pin hookup per slider (VCC, GND, and Wiper pin).
 
-<p align="center">
-  <img src="assets/deck_photo.jpg" alt="3D Printed OmniDeck" width="600" />
+<p align=center>
+  <img src=assets/deck_photo.jpg alt=3D Printed OmniDeck width=600 />
   <br />
   <em>My custom 3D-printed OmniDeck hardware enclosure</em>
 </p>
@@ -90,13 +95,13 @@ OmniDeck is completely agnostic regarding the physical enclosure and build—as 
 
 ## 🔌 Arduino Firmware
 
-The firmware sketch is located at [firmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino).
+The firmware sketch is located at [irmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino).
 
 > [!IMPORTANT]
 > **Hardware Compatibility**: The firmware is **only compatible with native USB / HID-capable Arduinos** (e.g. **Arduino Micro**, **Arduino Leonardo**, **SparkFun/Clone Pro Micro**, or other **ATmega32U4 / SAMD** microcontrollers featuring native USB). Standard boards with external USB-to-UART chips (such as Arduino Uno or Nano) are not supported.
 
 ### Setup & Flashing
-1. Open [firmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino) in the **Arduino IDE**.
+1. Open [irmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino) in the **Arduino IDE**.
 2. Connect your slide potentiometers (e.g. 10kΩ linear):
    - **VCC** (Outer pin 1) → **5V**
    - **GND** (Outer pin 2) → **GND**
@@ -120,5 +125,5 @@ While **OmniDeck** shares the vision of physical hardware volume control, **all 
 
 ## 📄 License
 
-This project is open-source software licensed under the [MIT License](LICENSE).
+This project is open-source software licensed under the [MIT License](LICENSE).  
 Copyright (c) 2026 Anastasios Vogiantzis.
