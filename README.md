@@ -18,11 +18,11 @@ The project includes a unified build pipeline to compile and pack the applicatio
 - [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) installed on your system.
 
 ### Option A: Local Build Script (Recommended)
-An automated PowerShell script uild.ps1 is provided in the repository root. It stops running instances of OmniDeck, cleans previous outputs, and publishes both versions.
+An automated PowerShell script `build.ps1` is provided in the repository root. It stops running instances of OmniDeck, cleans previous outputs, and publishes both versions.
 
-`powershell
+```powershell
 ./build.ps1
-`
+```
 
 Once completed, the outputs will be located in the publish/ directory:
 - **Minimal**: publish/minimal/OmniDeck.exe
@@ -32,34 +32,34 @@ Once completed, the outputs will be located in the publish/ directory:
 If you prefer running standard dotnet CLI commands:
 
 * **Minimal Build:**
-  `ash
+  ```bash
   dotnet publish OmniDeck/OmniDeck.csproj -c Release -r win-x64 --self-contained false -o publish/minimal -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true
-  `
+  ```
 
 * **Bundled Build:**
-  `ash
+  ```bash
   dotnet publish OmniDeck/OmniDeck.csproj -c Release -r win-x64 --self-contained true -o publish/bundled -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true
-  `
+  ```
 
 ---
 
 ## 🚀 How to Run the App
 
 1. Navigate to the published directory of your choice (publish/minimal or publish/bundled).
-2. Run OmniDeck.exe.
+2. Run `OmniDeck.exe`.
 3. **Application Setup**:
    - In the left sidebar under **Connection**, select your **Serial Port** (e.g. COM6).
    - Select the matching **Baud Rate** (typically 9600).
    - Click **Connect**.
    - Under **Volume Mixing Deck**, map your physical slider channels (e.g., CH 0, CH 1) to targets:
-     - master: Global system volume.
-     - ctive_window: Current active foreground application.
-     - ctive_not_mapped: Foreground application, unless it is already explicitly assigned to another slider.
+     - `master`: Global system volume.
+     - `active_window`: Current active foreground application.
+     - `active_not_mapped`: Foreground application, unless it is already explicitly assigned to another slider.
      - Any running application (e.g. spotify.exe, discord.exe, chrome.exe).
    - Click **Save Settings** to persist the configuration.
 
 > [!NOTE]
-> **Single Instance Policy**: OmniDeck enforces a single running instance. If you run another instance of OmniDeck.exe, the new instance will signal the existing window to restore to the foreground and then exit immediately.
+> **Single Instance Policy**: OmniDeck enforces a single running instance. If you run another instance of `OmniDeck.exe`, the new instance will signal the existing window to restore to the foreground and then exit immediately.
 
 > [!TIP]
 > **Windows SmartScreen Notice**: Because OmniDeck is an open-source tool without a paid commercial certificate, Windows Defender SmartScreen may display an *Unrecognized app* notice on first launch. Click **More info** → **Run anyway**. All source code and build pipelines are 100% open and inspectable right here on GitHub.
@@ -95,13 +95,13 @@ OmniDeck is completely agnostic regarding the physical enclosure and build — a
 
 ## 🔌 Arduino Firmware
 
-The firmware sketch is located at [irmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino).
+The firmware sketch is located at [firmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino).
 
 > [!IMPORTANT]
 > **Hardware Compatibility**: The firmware is **only compatible with native USB / HID-capable Arduinos** (e.g. **Arduino Micro**, **Arduino Leonardo**, **SparkFun/Clone Pro Micro**, or other **ATmega32U4 / SAMD** microcontrollers featuring native USB). Standard boards with external USB-to-UART chips (such as Arduino Uno or Nano) are not supported.
 
 ### Setup & Flashing
-1. Open [irmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino) in the **Arduino IDE**.
+1. Open [firmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino) in the **Arduino IDE**.
 2. Connect your slide potentiometers (e.g. 10kΩ linear):
    - **VCC** (Outer pin 1) → **5V**
    - **GND** (Outer pin 2) → **GND**
