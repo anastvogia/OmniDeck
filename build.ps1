@@ -1,22 +1,22 @@
 # build.ps1
-# Script to build both minimal and bundled versions of Sliders
+# Script to build both minimal and bundled versions of OmniDeck
 
 $ProjectDir = $PSScriptRoot
-$ProjectFile = Join-Path $ProjectDir "Sliders\Sliders.csproj"
+$ProjectFile = Join-Path $ProjectDir "OmniDeck\OmniDeck.csproj"
 $PublishDir = Join-Path $ProjectDir "publish"
 $MinimalDir = Join-Path $PublishDir "minimal"
 $BundledDir = Join-Path $PublishDir "bundled"
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host " Starting Sliders Build Pipeline" -ForegroundColor Cyan
+Write-Host " Starting OmniDeck Build Pipeline" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
-# 1. Stop running instances of Sliders to avoid file locks
-Write-Host "`n[1/4] Checking for running instances of Sliders..." -ForegroundColor Yellow
-$runningProcesses = Get-Process -Name "Sliders" -ErrorAction SilentlyContinue
+# 1. Stop running instances of OmniDeck to avoid file locks
+Write-Host "`n[1/4] Checking for running instances of OmniDeck..." -ForegroundColor Yellow
+$runningProcesses = Get-Process -Name "OmniDeck", "Sliders" -ErrorAction SilentlyContinue
 if ($runningProcesses) {
-    Write-Host "Found running Sliders process(es). Stopping them..." -ForegroundColor Magenta
-    Stop-Process -Name "Sliders" -Force
+    Write-Host "Found running OmniDeck process(es). Stopping them..." -ForegroundColor Magenta
+    Stop-Process -Name "OmniDeck", "Sliders" -Force
     Start-Sleep -Seconds 1
 } else {
     Write-Host "No running instances found." -ForegroundColor Green
@@ -74,8 +74,8 @@ Write-Host "`n=============================================" -ForegroundColor Cy
 Write-Host " Build Summary" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
-$minimalExe = Join-Path $MinimalDir "Sliders.exe"
-$bundledExe = Join-Path $BundledDir "Sliders.exe"
+$minimalExe = Join-Path $MinimalDir "OmniDeck.exe"
+$bundledExe = Join-Path $BundledDir "OmniDeck.exe"
 
 if (Test-Path $minimalExe) {
     $minSize = (Get-Item $minimalExe).Length / 1MB

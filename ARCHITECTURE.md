@@ -1,4 +1,4 @@
-# Sliders — Architecture & Codebase Reference
+# OmniDeck — Architecture & Codebase Reference
 
 > **Purpose of this document**: Provide enough detail for any developer or AI agent to understand every layer of the application and make changes at the deepest level without ambiguity.
 
@@ -6,7 +6,7 @@
 
 ## 1. Project Overview
 
-**Sliders** is a WPF desktop application (.NET 8, Windows-only) that bridges physical slider hardware (Arduino-based, connected via USB serial) to Windows per-application audio volume control (via WASAPI / NAudio). It functions as a hardware audio mixing console — each physical slider maps to a target (master volume, a specific process, or the active window) and adjusts its volume in real time.
+**OmniDeck** is a WPF desktop application (.NET 8, Windows-only) that bridges physical slider hardware (Arduino-based, connected via USB serial) to Windows per-application audio volume control (via WASAPI / NAudio). It functions as a hardware audio mixing console — each physical slider maps to a target (master volume, a specific process, or the active window) and adjusts its volume in real time.
 
 ### Key capabilities
 - Real-time serial communication with an Arduino sending analog slider values
@@ -33,20 +33,20 @@
 | DI | Microsoft.Extensions.DependencyInjection | 10.0.9 |
 | Config | System.Text.Json | Built-in |
 
-The project file is `Sliders/Sliders.csproj`. `AllowUnsafeBlocks` is enabled for P/Invoke interop. Both `UseWPF` and `UseWindowsForms` are true (the latter solely for `System.Windows.Forms.NotifyIcon` tray icon support).
+The project file is `OmniDeck/OmniDeck.csproj`. `AllowUnsafeBlocks` is enabled for P/Invoke interop. Both `UseWPF` and `UseWindowsForms` are true (the latter solely for `System.Windows.Forms.NotifyIcon` tray icon support).
 
 ---
 
 ## 3. Directory Structure
 
 ```
-Sliders/
-├── Sliders.sln                        # Solution file
+OmniDeck/
+├── OmniDeck.sln                       # Solution file
 ├── stderr.log                         # Runtime error log (historical)
 ├── stdout.log                         # Runtime output log (historical)
 ├── publish/                           # Published binaries
-└── Sliders/                           # Main project
-    ├── Sliders.csproj
+└── OmniDeck/                          # Main project
+    ├── OmniDeck.csproj
     ├── App.xaml                        # Application resource dictionary host
     ├── App.xaml.cs                     # Entry point, DI container, single-instance mutex
     ├── MainWindow.xaml                 # Full UI layout (single-window app)
@@ -100,8 +100,8 @@ Sliders/
 ```
 1. Initialize Logger and configure log rotation
 2. Register global exception handlers (AppDomain, Dispatcher, TaskScheduler)
-3. Create named Mutex "Local\Sliders_B8A3F1E0_SingleInstance"
-   ├─ If mutex already held → PostMessage(HWND_BROADCAST, WM_SHOWSLIDERS) → Shutdown()
+3. Create named Mutex "Local\OmniDeck_B8A3F1E0_SingleInstance"
+   ├─ If mutex already held → PostMessage(HWND_BROADCAST, WM_SHOWOMNIDECK) → Shutdown()
    └─ If new mutex created → continue
 4. Build DI container (all services as singletons, including IStartupService)
 5. Resolve MainWindow and MainViewModel
@@ -243,11 +243,11 @@ All services are registered as **singletons** in the DI container. There is exac
 
 **Responsibility**: Persists and loads `AppProfile` as indented JSON with atomic file writing.
 
-**File location**: `%AppData%\Sliders\sliders_config.json`
+**File location**: `%AppData%\OmniDeck\omnideck_config.json`
 
 **JSON options**: `WriteIndented = true`, `PropertyNamingPolicy = CamelCase`
 
-**Atomic saving**: Writes JSON to `%AppData%\Sliders\sliders_config.json.tmp` first, then executes an atomic move with overwrite to prevent file corruption during power cuts or abrupt process termination.
+**Atomic saving**: Writes JSON to `%AppData%\OmniDeck\omnideck_config.json.tmp` first, then executes an atomic move with overwrite to prevent file corruption during power cuts or abrupt process termination.
 
 **Default config**: 4 sliders (indices 0–3), slider 0 mapped to "master", others unmapped. COM3 at 9600 baud. No auto-launch, no auto-connect, not minimized.
 
@@ -259,7 +259,7 @@ All services are registered as **singletons** in the DI container. There is exac
 1. Processes with active WASAPI audio sessions (via `_audioService.GetActiveAudioProcesses()`)
 2. Running processes with a visible main window (`MainWindowHandle != 0` and `MainWindowTitle` not empty)
 
-Excludes the app's own process (`"sliders"`).
+Excludes the app's own process (`"omnideck"`).
 
 ### 6.5 IStartupService / StartupService
 
@@ -357,23 +357,23 @@ Represents one physical slider channel.
 |---|---|
 | `GetForegroundWindow()` | Gets HWND of the currently focused window (for active_window target) |
 | `GetWindowThreadProcessId()` | Gets the PID that owns a given HWND |
-| `RegisterWindowMessage("WM_SHOWSLIDERS_B8A3F1E0")` | Registers a unique message ID for single-instance signaling |
+| `RegisterWindowMessage("WM_SHOWOMNIDECK_B8A3F1E0")` | Registers a unique message ID for single-instance signaling |
 | `PostMessage(HWND_BROADCAST, ...)` | Broadcasts the "show yourself" message to all top-level windows |
 | `ShowWindow()` / `SetForegroundWindow()` | Available but currently the WPF `RestoreWindow()` method handles activation via `Show()` + `Activate()` |
 
-The static field `WM_SHOWSLIDERS` is initialized at class load time via `RegisterWindowMessage()`.
+The static field `WM_SHOWOMNIDECK` is initialized at class load time via `RegisterWindowMessage()`.
 
 ---
 
 ## 10. Single-Instance Enforcement
 
-1. **`App.OnStartup`**: Creates `Mutex("Global\Sliders_B8A3F1E0_SingleInstance", true, out createdNew)`.
-   - If `createdNew == false`: another instance is running. `PostMessage(HWND_BROADCAST, WM_SHOWSLIDERS)` then `Shutdown()`.
+1. **`App.OnStartup`**: Creates `Mutex("Local\OmniDeck_B8A3F1E0_SingleInstance", true, out createdNew)`.
+   - If `createdNew == false`: another instance is running. `PostMessage(HWND_BROADCAST, WM_SHOWOMNIDECK)` then `Shutdown()`.
    - If `createdNew == true`: this is the primary instance. Continue startup.
 
 2. **`MainWindow.MainWindow_SourceInitialized`**: After the HWND is created, hooks into the Win32 message pump via `HwndSource.AddHook(WndProc)`.
 
-3. **`MainWindow.WndProc`**: When it receives `WM_SHOWSLIDERS`, calls `RestoreWindow()` which does `Show()` → `WindowState = Normal` → `Activate()`.
+3. **`MainWindow.WndProc`**: When it receives `WM_SHOWOMNIDECK`, calls `RestoreWindow()` which does `Show()` → `WindowState = Normal` → `Activate()`.
 
 ---
 
@@ -382,7 +382,7 @@ The static field `WM_SHOWSLIDERS` is initialized at class load time via `Registe
 `MainWindow` creates a `System.Windows.Forms.NotifyIcon` with:
 - App icon loaded from embedded resource (`pack://` URI) with fallback to `ExtractAssociatedIcon` → `SystemIcons.Application`
 - Double-click → `RestoreWindow()`
-- Context menu: "Open Sliders" → `RestoreWindow()`, "Exit Application" → sets `_isExiting = true` → `Close()`
+- Context menu: "Open OmniDeck" → `RestoreWindow()`, "Exit Application" → sets `_isExiting = true` → `Close()`
 
 **Close behavior**: `MainWindow_Closing` cancels the close if `_isExiting == false` and hides the window instead. Shows a one-time balloon tip explaining tray minimization.
 
@@ -411,14 +411,14 @@ AppProfile
 
 ### 12.2 Persistence
 
-- **Location**: `%AppData%\Sliders\sliders_config.json`
+- **Location**: `%AppData%\OmniDeck\omnideck_config.json`
 - **Format**: Indented JSON with camelCase property names
 - **Save trigger**: Manual "Save Settings" button, and auto-save on application exit
 - **Load**: On startup in `MainViewModel.LoadConfig()`. Falls back to defaults on missing file or parse error.
 
 ### 12.3 Startup Registry
 
-When `LaunchOnStartup` is toggled, `IStartupService` (`StartupService.cs`) writes or deletes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Sliders` with the quoted executable path, decoupling registry persistence from ViewModels.
+When `LaunchOnStartup` is toggled, `IStartupService` (`StartupService.cs`) writes or deletes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\OmniDeck` with the quoted executable path, decoupling registry persistence from ViewModels.
 
 ---
 
@@ -446,13 +446,13 @@ This ensures the dropdown always contains the 4 built-in options plus any curren
 
 ### 14.1 Window Layout
 
-The window uses `WindowStyle="None"` with a custom chrome (`WindowChrome`) for a frameless look. Fixed height of 490px, width auto-sizes to content. `ResizeMode="CanMinimize"`.
+The window uses `WindowStyle="None"` with a custom chrome (`WindowChrome`) for a frameless look. Fixed height of 530px, width auto-sizes to content. `ResizeMode="CanMinimize"`.
 
 **Layout structure**:
 ```
 Grid (2 rows × 2 columns)
 ├── Row 0: Custom Title Bar
-│   ├── Col 0: App logo + "SLIDERS" text (left sidebar header)
+│   ├── Col 0: App logo + "OMNIDECK" text (left sidebar header)
 │   └── Col 1: Minimize + Close buttons (right header)
 └── Row 1: Content
     ├── Col 0 (220px): Left Sidebar
@@ -584,7 +584,7 @@ The `AudioService` implements `IMMNotificationClient` to survive:
 | Process enumeration | Individual `try-catch` per process (access denied is common for system processes) |
 | Config load failure | Returns default `AppProfile`; save writes atomically via `.tmp` file |
 | Registry access failure | Handled inside `StartupService`, logged via `Logger.Error` |
-| Global exception handlers | `AppDomain.UnhandledException`, `DispatcherUnhandledException`, and `TaskScheduler.UnobservedTaskException` write to `crash.txt` and `sliders.log` with emergency dialog |
+| Global exception handlers | `AppDomain.UnhandledException`, `DispatcherUnhandledException`, and `TaskScheduler.UnobservedTaskException` write to `crash.txt` and `omnideck.log` with emergency dialog |
 
 ---
 
@@ -611,9 +611,9 @@ The application compiles into two distribution formats:
 
 ### 19.2 Local Pipeline (`build.ps1`)
 A PowerShell script is located at the project root (`build.ps1`). It automates the following steps:
-1. **Process Cleanup**: Checks for running instances of `Sliders` and stops them to prevent file lock errors during output overwrite.
+1. **Process Cleanup**: Checks for running instances of `OmniDeck` and stops them to prevent file lock errors during output overwrite.
 2. **Directory Clean**: Purges existing files in `publish/minimal` and `publish/bundled`.
-3. **Compilation**: Invokes `dotnet publish` with optimization flags (`-c Release -r win-x64 -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true`).
+3. **Compilation**: Invokes `dotnet publish` with optimization flags (`-c Release -r win-x64 -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true`).
 4. **Analysis & Summary**: Outputs file locations and sizes to the console.
 
 ### 19.3 CI/CD Pipeline (`.github/workflows/build.yml`)
@@ -621,18 +621,18 @@ A standard GitHub Actions workflow file defines the automated build and release 
 1. Sets up the .NET 8.0 SDK environment.
 2. Restores NuGet dependencies.
 3. Compiles both **Minimal** and **Bundled** configurations.
-4. Uploads the binaries as workflow artifacts (`Sliders-Minimal-win-x64` and `Sliders-Bundled-win-x64`).
+4. Uploads the binaries as workflow artifacts (`OmniDeck-Minimal-win-x64` and `OmniDeck-Bundled-win-x64`).
 
 ---
 
 ## 20. Diagnostics, Troubleshooting & Logging Architecture
 
-The diagnostics infrastructure (`Sliders/Services/Logger.cs`) provides persistent, production-grade visibility into hardware and software subsystems:
+The diagnostics infrastructure (`OmniDeck/Services/Logger.cs`) provides persistent, production-grade visibility into hardware and software subsystems:
 
 ### 20.1 Storage & Reliability
-- **File Location**: `%AppData%\Sliders\sliders.log`
+- **File Location**: `%AppData%\OmniDeck\omnideck.log`
 - **Immediate Disk Flush**: `StreamWriter.AutoFlush = true` guarantees every log entry is committed to disk synchronously before the method returns. Critical diagnostic events are preserved if the OS shuts down unexpectedly or the process terminates abruptly.
-- **Log Rotation**: Rotates files at 5 MB thresholds on startup, keeping up to 3 historical backups (`sliders.1.log`, `sliders.2.log`, `sliders.3.log`). Total diagnostic disk footprint is capped at ~20 MB.
+- **Log Rotation**: Rotates files at 5 MB thresholds on startup, keeping up to 3 historical backups (`omnideck.1.log`, `omnideck.2.log`, `omnideck.3.log`). Total diagnostic disk footprint is capped at ~20 MB.
 - **Thread Safety**: All writes are synchronized across worker tasks and UI threads using a static synchronization lock (`_writeLock`).
 
 ### 20.2 Severity Levels & CLI Debug Flags

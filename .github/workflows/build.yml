@@ -1,4 +1,4 @@
-name: Build and Publish Sliders
+name: Build and Publish OmniDeck
 
 on:
   push:
@@ -21,24 +21,24 @@ jobs:
         dotnet-version: 8.0.x
 
     - name: Restore dependencies
-      run: dotnet restore Sliders.sln
+      run: dotnet restore OmniDeck.sln
 
     - name: Publish Minimal Version (Framework Dependent)
       run: |
-        dotnet publish Sliders/Sliders.csproj -c Release -r win-x64 --self-contained false -o publish/minimal -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish OmniDeck/OmniDeck.csproj -c Release -r win-x64 --self-contained false -o publish/minimal -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true
 
     - name: Publish Bundled Version (Self Contained)
       run: |
-        dotnet publish Sliders/Sliders.csproj -c Release -r win-x64 --self-contained true -o publish/bundled -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true
+        dotnet publish OmniDeck/OmniDeck.csproj -c Release -r win-x64 --self-contained true -o publish/bundled -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true
 
     - name: Upload Minimal Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Sliders-Minimal-win-x64
+        name: OmniDeck-Minimal-win-x64
         path: publish/minimal/
 
     - name: Upload Bundled Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Sliders-Bundled-win-x64
+        name: OmniDeck-Bundled-win-x64
         path: publish/bundled/
