@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Windows;
 using System.Windows.Interop;
 using OmniDeck.Helpers;
@@ -147,6 +147,21 @@ public partial class MainWindow : Window
 
         _notifyIcon.ContextMenuStrip = contextMenu;
         Log.Info("MainWindow", "InitializeNotifyIcon complete");
+    }
+
+    private void UpdateProcessDiscoveryState()
+    {
+        if (DataContext is MainViewModel vm)
+        {
+            if (this.IsVisible && this.WindowState != WindowState.Minimized)
+            {
+                vm.ResumeProcessDiscovery();
+            }
+            else
+            {
+                vm.PauseProcessDiscovery();
+            }
+        }
     }
 
     private void RestoreWindow()

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Windows.Input;
 using OmniDeck.Helpers;
@@ -404,6 +404,25 @@ public class MainViewModel : ObservableObject, IDisposable
             }
             _lastVolumeSetTime = DateTime.UtcNow;
         });
+    }
+
+    public void PauseProcessDiscovery()
+    {
+        if (_refreshTimer.IsEnabled)
+        {
+            _refreshTimer.Stop();
+            Log.Debug("MainViewModel", "Process discovery timer paused (window hidden/minimized)");
+        }
+    }
+
+    public void ResumeProcessDiscovery()
+    {
+        if (!_refreshTimer.IsEnabled)
+        {
+            _refreshTimer.Start();
+            Log.Debug("MainViewModel", "Process discovery timer resumed (window visible)");
+            OnRefreshProcesses();
+        }
     }
 
     // ── Process discovery ───────────────────────────────────────

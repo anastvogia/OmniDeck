@@ -1,4 +1,8 @@
-﻿﻿# OmniDeck
+# OmniDeck
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![.NET 8.0](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)
 
 **OmniDeck** is a modern Windows utility (.NET 8 WPF) that maps physical sliders (from an Arduino/USB serial device) to Windows audio volume controls. It supports master volume, active-window volume, and per-process audio mixing with a real-time visual interface.
 
@@ -65,6 +69,25 @@ A GitHub Actions CI/CD configuration is available at .github/workflows/build.yml
 
 ---
 
+## 🎛️ Physical Deck & Hardware Options
+
+OmniDeck is completely agnostic regarding the physical enclosure and build—as long as your sliders output a standard 0–5V analog voltage to your Arduino, the construction and design are entirely up to your imagination:
+
+- **3D Printed Enclosures**: The most popular and ergonomic approach. You can 3D print an angled desktop console or wedge with cutouts matching your exact fader travel length (e.g., 45mm, 60mm, or 100mm faders) and custom slide knobs.
+- **DIY Enclosures**: Off-the-shelf plastic project boxes, laser-cut acrylic plates, machined aluminum, woodcraft, or even simple cardboard prototyping.
+- **Hardware Components Needed**:
+  - **Slide Potentiometers**: Standard 10kΩ linear faders (single gang, linear taper B10K).
+  - **Microcontroller**: Any native USB / HID-capable Arduino (e.g. **Arduino Micro**, **Pro Micro** with ATmega32U4).
+  - **Wiring**: Simple 3-pin hookup per slider (VCC, GND, and Wiper pin).
+
+<p align="center">
+  <img src="assets/deck_photo.jpg" alt="3D Printed OmniDeck" width="600" />
+  <br />
+  <em>My custom 3D-printed OmniDeck hardware enclosure</em>
+</p>
+
+---
+
 ## 🔌 Arduino Firmware
 
 The firmware sketch is located at [firmware/OmniDeck/OmniDeck.ino](firmware/OmniDeck/OmniDeck.ino).
@@ -92,3 +115,10 @@ While **OmniDeck** shares the vision of physical hardware volume control, **all 
 - **Dynamic Channel Management**: Add, remove, invert, and reorder slider channels on the fly.
 - **Process Auto-Discovery**: Automatic live detection of running audio sessions without needing to look up process executables.
 - **Native Windows Integration**: System tray minimization, single-instance IPC, and seamless Windows startup registration.
+
+---
+
+## 📄 License
+
+This project is open-source software licensed under the [MIT License](LICENSE).
+Copyright (c) 2026 Anastasios Vogiantzis.
