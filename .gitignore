@@ -25,3 +25,9 @@ publish/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Local / temporary files and hardware assets
+temp/
+local/
+.local/
+*.rar
