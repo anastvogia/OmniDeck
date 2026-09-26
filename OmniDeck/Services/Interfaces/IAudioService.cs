@@ -27,5 +27,8 @@ public interface IAudioService : IDisposable
 
     /// <summary>Returns the volume level for a given target, or null if target is not active/valid.</summary>
     float? GetVolume(string target, IReadOnlyList<string> explicitlyMappedTargets);
+
+    /// <summary>Toggles mute for a given target ("master", "active_window", or a process name).</summary>
+    void ToggleMute(string target, IReadOnlyList<string>? explicitlyMappedTargets = null);
 }
 

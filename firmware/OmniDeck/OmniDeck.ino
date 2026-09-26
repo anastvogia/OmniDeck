@@ -7,8 +7,8 @@
  *    Format: val0|val1|val2|...|valN\n (0 - 1023 per channel)
  * 
  * 2. Maps digital macro switch inputs to discrete serial events:
- *    Format: BTN:<index>:DOWN\n (when pressed)
- *            BTN:<index>:UP\n   (when released)
+ *    Format: BTN:<pinName>:DOWN\n (when pressed, e.g. BTN:D2:DOWN)
+ *            BTN:<pinName>:UP\n   (when released, e.g. BTN:D2:UP)
  */
 
 // =================== CONFIGURATION ===================
@@ -25,6 +25,8 @@ const bool INVERT_SLIDERS = false;
 const int NUM_MACROS = 4;
 // Digital pins for each macro switch (0 -> D2, 1 -> D3, 2 -> D4, 3 -> D5)
 const int MACRO_PINS[NUM_MACROS] = { 2, 3, 4, 5 };
+// Hardware pin labels/identifiers sent to PC (e.g. "D2", "D3", "D4", "D5")
+const char* const MACRO_PIN_NAMES[NUM_MACROS] = { "D2", "D3", "D4", "D5" };
 
 // Set to true if switch connects pin to GND when pressed (standard INPUT_PULLUP)
 // Set to false if your hardware connects pin to VCC when pressed (active HIGH)
@@ -37,15 +39,15 @@ const unsigned long MACRO_DEBOUNCE_MS = 30;
 // Baud rate (must match OmniDeck Settings, default is 9600)
 const long BAUD_RATE = 9600;
 
-// Sampling rate: check slider positions every 15ms (~66Hz)
-const unsigned long UPDATE_INTERVAL_MS = 15;
+// Sampling rate: check slider positions every 4ms (~250Hz for instantaneous response)
+const unsigned long UPDATE_INTERVAL_MS = 4;
 
 // Heartbeat: force-send slider values at least every 200ms
 // (Ensures OmniDeck receives initial positions immediately upon connecting)
 const unsigned long HEARTBEAT_INTERVAL_MS = 200;
 
 // Minimum ADC change required to trigger an immediate frame (deadband against electrical noise)
-const int JITTER_THRESHOLD = 3;
+const int JITTER_THRESHOLD = 2;
 // =====================================================
 
 // Slider state tracking
@@ -110,9 +112,9 @@ void handleMacroSwitches(unsigned long now) {
 
         bool isPressed = MACRO_ACTIVE_LOW ? (currentRead == LOW) : (currentRead == HIGH);
 
-        // Send discrete event immediately over Serial
+        // Send discrete event immediately over Serial (e.g. BTN:D2:DOWN)
         Serial.print(F("BTN:"));
-        Serial.print(i);
+        Serial.print(MACRO_PIN_NAMES[i]);
         if (isPressed) {
           Serial.println(F(":DOWN"));
         } else {

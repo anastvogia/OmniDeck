@@ -51,12 +51,24 @@ If you prefer running standard dotnet CLI commands:
    - In the left sidebar under **Connection**, select your **Serial Port** (e.g. COM6).
    - Select the matching **Baud Rate** (typically 9600).
    - Click **Connect**.
-   - Under **Volume Mixing Deck**, map your physical slider channels (e.g., CH 0, CH 1) to targets:
-     - `master`: Global system volume.
-     - `active_window`: Current active foreground application.
-     - `active_not_mapped`: Foreground application, unless it is already explicitly assigned to another slider.
-     - Any running application (e.g. spotify.exe, discord.exe, chrome.exe).
-   - Click **Save Settings** to persist the configuration.
+   - **Sliders Tab**:
+     - Map your physical fader channels (e.g., CH 0, CH 1) to targets:
+       - `master`: Global system volume.
+       - `active_window`: Current active foreground application.
+       - `active_not_mapped`: Foreground application, unless it is already explicitly assigned to another slider.
+       - Any running application (e.g. spotify.exe, discord.exe, chrome.exe).
+     - To register a new slider, click **Add Channel** and move the physical slider (requires $\ge 5$ ADC delta movement).
+   - **Macros Tab**:
+     - View and configure mechanical buttons and macro switches in a clean keycap grid.
+     - Click **+ Add Macro** and press an unmapped physical button to pair it.
+     - Select any keycap to configure its action:
+       - **Media Control**: Play/Pause, Next Track, Previous Track, Volume Up/Down, Stop.
+       - **System Utility**: Screenshot (PrintScreen), Lock Workstation.
+       - **Audio Mute**: Instant mute/unmute toggle for master or any active application.
+       - **Keystroke**: Custom key combinations (e.g. `Ctrl+Shift+M`).
+       - **Run Program**: Launch executables, scripts, or URLs.
+     - *Note*: Macro execution is automatically disabled while on the Macros tab (**Test Mode**) so you can press hardware buttons to select and inspect them without accidentally triggering shortcuts.
+   - Click **Save Settings** to persist your configuration.
 
 > [!NOTE]
 > **Single Instance Policy**: OmniDeck enforces a single running instance. If you run another instance of `OmniDeck.exe`, the new instance will signal the existing window to restore to the foreground and then exit immediately.
@@ -76,14 +88,17 @@ A complete GitHub Actions CI/CD pipeline is configured in [.github/workflows/bui
 
 ## 🎛️ Physical Deck & Hardware Options
 
-OmniDeck is completely agnostic regarding the physical enclosure and build — as long as your sliders output a standard 0–5V analog voltage to your Arduino, the construction and design are entirely up to your imagination:
+OmniDeck is completely agnostic regarding the physical enclosure and build — as long as your sliders output a standard 0–5V analog voltage and your switches connect to digital pins, the design is entirely up to your imagination:
 
-- **3D Printed Enclosures**: The most popular and ergonomic approach. You can 3D print an angled desktop console or wedge with cutouts matching your exact fader travel length (e.g., 45mm, 60mm, or 100mm faders) and custom slide knobs.
-- **DIY Enclosures**: Off-the-shelf plastic project boxes, laser-cut acrylic plates, machined aluminum, woodcraft, or even simple cardboard prototyping.
+- **3D Printed Enclosures**: The most popular and ergonomic approach. You can 3D print an angled desktop console or wedge with cutouts matching your exact fader travel length (e.g., 45mm, 60mm, or 100mm faders) and mechanical keyboard switch cutouts.
+- **DIY Enclosures**: Off-the-shelf plastic project boxes, laser-cut acrylic plates, machined aluminum, woodcraft, or simple desktop enclosures.
 - **Hardware Components Needed**:
   - **Slide Potentiometers**: Standard 10kΩ linear faders (single gang, linear taper B10K).
+  - **Mechanical Switches / Buttons**: Standard tactile pushbuttons or mechanical keyboard switches (Cherry MX, Gateron, etc.).
   - **Microcontroller**: Any native USB / HID-capable Arduino (e.g. **Arduino Micro**, **Pro Micro** with ATmega32U4).
-  - **Wiring**: Simple 3-pin hookup per slider (VCC, GND, and Wiper pin).
+  - **Wiring**:
+    - Sliders: 3-pin hookup per slider (VCC, GND, and Wiper pin to analog inputs A0–A3).
+    - Switches: 2-pin hookup per switch (One pin to Digital pin D2–D5, other pin to GND using internal `INPUT_PULLUP`).
 
 <p align=center>
   <img src=assets/deck_photo.jpg alt=3D Printed OmniDeck width=600 />
@@ -105,9 +120,12 @@ The firmware sketch is located at [firmware/OmniDeck/OmniDeck.ino](firmware/Omni
 2. Connect your slide potentiometers (e.g. 10kΩ linear):
    - **VCC** (Outer pin 1) → **5V**
    - **GND** (Outer pin 2) → **GND**
-   - **Wiper** (Middle pin) → **A0, A1, A2, A3** (or customize SLIDER_PINS in the sketch)
-3. Under **Tools**, select your board (e.g. **Arduino Micro**) and port, then click **Upload**.
-4. Open **OmniDeck**, select the COM port at 9600 baud, and click **Connect**.
+   - **Wiper** (Middle pin) → **A0, A1, A2, A3** (or customize `SLIDER_PINS` in sketch)
+3. Connect your macro switches (pushbuttons or mechanical switches):
+   - **Pin 1** → **D2, D3, D4, D5** (or customize `MACRO_PINS` in sketch)
+   - **Pin 2** → **GND** (internal pullups are active)
+4. Under **Tools**, select your board (e.g. **Arduino Micro**) and port, then click **Upload**.
+5. Open **OmniDeck**, select the COM port at 9600 baud, and click **Connect**.
 
 ---
 

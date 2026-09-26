@@ -13,6 +13,9 @@ public interface ISerialService : IDisposable
     /// <summary>Raised on a background thread whenever a full line of slider values arrives.</summary>
     event Action<int[]>? SliderValuesReceived;
 
+    /// <summary>Raised on a background thread when a button event arrives (buttonId, isDown).</summary>
+    event Action<string, bool>? ButtonEventReceived;
+
     /// <summary>Raised when the connection drops unexpectedly (USB unplug, etc.).</summary>
     event Action? Disconnected;
 

@@ -52,4 +52,31 @@ internal static partial class NativeMethods
 
     /// <summary>The application-wide custom message ID used to signal "show yourself".</summary>
     internal static readonly uint WM_SHOWOMNIDECK = RegisterWindowMessage("WM_SHOWOMNIDECK_B8A3F1E0");
+
+    // ── Macro keyboard & media input simulation ─────────────────
+    [DllImport("user32.dll")]
+    internal static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool LockWorkStation();
+
+    internal const uint KEYEVENTF_KEYUP = 0x0002;
+    internal const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+
+    // Common Virtual Key Codes
+    internal const byte VK_SHIFT = 0x10;
+    internal const byte VK_CONTROL = 0x11;
+    internal const byte VK_MENU = 0x12; // Alt
+    internal const byte VK_SNAPSHOT = 0x2C; // Print Screen
+    internal const byte VK_LWIN = 0x5B;
+
+    // Media Keys
+    internal const byte VK_VOLUME_MUTE = 0xAD;
+    internal const byte VK_VOLUME_DOWN = 0xAE;
+    internal const byte VK_VOLUME_UP = 0xAF;
+    internal const byte VK_MEDIA_NEXT_TRACK = 0xB0;
+    internal const byte VK_MEDIA_PREV_TRACK = 0xB1;
+    internal const byte VK_MEDIA_STOP = 0xB2;
+    internal const byte VK_MEDIA_PLAY_PAUSE = 0xB3;
 }

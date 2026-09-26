@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Interop;
 using OmniDeck.Helpers;
@@ -24,6 +24,7 @@ public partial class MainWindow : Window
         InitializeNotifyIcon();
         Closing += MainWindow_Closing;
         SourceInitialized += MainWindow_SourceInitialized;
+        Loaded += MainWindow_Loaded;
         Log.Info("MainWindow", "Constructor complete");
     }
 
@@ -237,5 +238,54 @@ public partial class MainWindow : Window
             Log.Error("MainWindow", "Hyperlink navigation failed", ex);
         }
         e.Handled = true;
+    }
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm)
+        {
+            vm.Sliders.CollectionChanged += (s, ev) =>
+            {
+                if (ev.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        SlidersScrollViewer?.ScrollToRightEnd();
+                    }, System.Windows.Threading.DispatcherPriority.Loaded);
+                }
+            };
+        }
+    }
+
+    private void SlidersScrollViewer_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if (sender is System.Windows.Controls.ScrollViewer sv)
+        {
+            // Smooth horizontal scroll proportional to mouse wheel delta (wheel down = scroll right, wheel up = scroll left)
+            sv.ScrollToHorizontalOffset(sv.HorizontalOffset - e.Delta);
+            e.Handled = true;
+        }
+    }
+
+    private void ScrollSlidersLeft_Click(object sender, RoutedEventArgs e)
+    {
+        // 114px = 1 channel strip (106px card + 8px right margin)
+        SlidersScrollViewer?.ScrollToHorizontalOffset(SlidersScrollViewer.HorizontalOffset - 114);
+    }
+
+    private void ScrollSlidersRight_Click(object sender, RoutedEventArgs e)
+    {
+        // 114px = 1 channel strip (106px card + 8px right margin)
+        SlidersScrollViewer?.ScrollToHorizontalOffset(SlidersScrollViewer.HorizontalOffset + 114);
+    }
+
+    protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        base.OnPreviewKeyDown(e);
+        if (e.Key == System.Windows.Input.Key.Escape && DataContext is MainViewModel vm && vm.IsPairingActive)
+        {
+            vm.CancelPairingCommand.Execute(null);
+            e.Handled = true;
+        }
     }
 }

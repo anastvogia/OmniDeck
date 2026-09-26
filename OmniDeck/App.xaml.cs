@@ -92,6 +92,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<IConfigService, ConfigService>();
         services.AddSingleton<IStartupService, StartupService>();
         services.AddSingleton<IProcessDiscoveryService, ProcessDiscoveryService>();
+        services.AddSingleton<IMacroService, MacroService>();
 
         // ViewModel
         services.AddSingleton<MainViewModel>();

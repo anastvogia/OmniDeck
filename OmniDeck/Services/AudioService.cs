@@ -123,6 +123,120 @@ public sealed class AudioService : IAudioService, IMMNotificationClient
         }
     }
 
+    public void ToggleMute(string target, IReadOnlyList<string>? explicitlyMappedTargets = null)
+    {
+        target ??= "";
+        explicitlyMappedTargets ??= Array.Empty<string>();
+
+        switch (target.ToLowerInvariant())
+        {
+            case "":
+                break;
+
+            case "master":
+                ToggleMasterMute();
+                break;
+
+            case "active_window":
+                ToggleActiveWindowMute(explicitlyMappedTargets, forceAlways: true);
+                break;
+
+            case "active_not_mapped":
+                ToggleActiveWindowMute(explicitlyMappedTargets, forceAlways: false);
+                break;
+
+            default:
+                ToggleProcessMute(target);
+                break;
+        }
+    }
+
+    private void ToggleMasterMute()
+    {
+        lock (_lock)
+        {
+            if (_device is null) return;
+            try
+            {
+                _device.AudioEndpointVolume.Mute = !_device.AudioEndpointVolume.Mute;
+                Log.Info("AudioService", $"ToggleMasterMute: now {_device.AudioEndpointVolume.Mute}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("AudioService", "Failed to toggle master mute", ex);
+            }
+        }
+    }
+
+    private void ToggleProcessMute(string processName)
+    {
+        if (processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            processName = processName.Substring(0, processName.Length - 4);
+
+        lock (_lock)
+        {
+            bool found = _sessionCache.TryGetValue(processName, out var sessions);
+            if (!found || sessions == null || sessions.Count == 0)
+            {
+                RefreshSessionCacheInternal();
+                found = _sessionCache.TryGetValue(processName, out sessions);
+            }
+
+            if (found && sessions != null)
+            {
+                foreach (var session in sessions)
+                {
+                    try
+                    {
+                        session.SimpleAudioVolume.Mute = !session.SimpleAudioVolume.Mute;
+                        Log.Info("AudioService", $"ToggleProcessMute: '{processName}' now {session.SimpleAudioVolume.Mute}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("AudioService", $"Failed to toggle mute for '{processName}': {ex.Message}");
+                    }
+                }
+            }
+        }
+    }
+
+    private void ToggleActiveWindowMute(IReadOnlyList<string> explicitlyMappedTargets, bool forceAlways)
+    {
+        try
+        {
+            IntPtr hwnd = NativeMethods.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero) return;
+
+            NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+            if (pid == 0) return;
+
+            string processName = GetProcessNameFromPid(pid).ToLowerInvariant();
+
+            if (processName.Equals(OwnProcessName, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (!forceAlways)
+            {
+                foreach (var mapped in explicitlyMappedTargets)
+                {
+                    if (string.IsNullOrEmpty(mapped)) continue;
+                    string cleanMapped = mapped.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        ? mapped.Substring(0, mapped.Length - 4)
+                        : mapped;
+
+                    if (cleanMapped.Equals(processName, StringComparison.OrdinalIgnoreCase))
+                        return;
+                }
+            }
+
+            ToggleProcessMute(processName);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("AudioService", $"ToggleActiveWindowMute failed: {ex.Message}");
+        }
+    }
+
     public float? GetVolume(string target, IReadOnlyList<string> explicitlyMappedTargets)
     {
         target ??= "";

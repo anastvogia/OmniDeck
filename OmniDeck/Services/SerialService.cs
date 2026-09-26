@@ -21,6 +21,7 @@ public sealed class SerialService : ISerialService
     public bool IsConnected => _isConnected;
 
     public event Action<int[]>? SliderValuesReceived;
+    public event Action<string, bool>? ButtonEventReceived;
     public event Action? Disconnected;
 
     public string[] GetAvailablePorts()
@@ -84,7 +85,25 @@ public sealed class SerialService : ISerialService
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
-                var parts = line.Trim().Split(delimiter);
+                var trimmed = line.Trim();
+
+                // Check for discrete Button events: BTN:<id>:<DOWN|UP> (e.g. BTN:D2:DOWN)
+                if (trimmed.StartsWith("BTN:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var btnParts = trimmed.Split(':');
+                    if (btnParts.Length >= 3)
+                    {
+                        string btnId = btnParts[1].Trim();
+                        if (!string.IsNullOrEmpty(btnId))
+                        {
+                            bool isDown = string.Equals(btnParts[2], "DOWN", StringComparison.OrdinalIgnoreCase);
+                            ButtonEventReceived?.Invoke(btnId, isDown);
+                        }
+                    }
+                    continue;
+                }
+
+                var parts = trimmed.Split(delimiter);
                 var values = new int[parts.Length];
                 bool valid = true;
 

@@ -1,4 +1,4 @@
-﻿# OmniDeck — Architecture & Codebase Reference
+# OmniDeck — Architecture & Codebase Reference
 
 > **Purpose of this document**: Provide enough detail for any developer or AI agent to understand every layer of the application and make changes at the deepest level without ambiguity.
 
@@ -58,6 +58,7 @@ OmniDeck/
     │
     ├── Models/
     │   ├── AppProfile.cs              # Root config object (serialized to JSON)
+    │   ├── MacroConfig.cs             # Per-macro persistent config
     │   ├── SerialSettings.cs          # COM port + baud + delimiter
     │   └── SliderConfig.cs            # Per-slider persistent config
     │
@@ -65,18 +66,21 @@ OmniDeck/
     │   ├── Base/
     │   │   ├── ObservableObject.cs     # INotifyPropertyChanged base
     │   │   └── RelayCommand.cs         # ICommand implementation
-    │   ├── MainViewModel.cs            # Top-level VM: owns pipeline, commands, config
+    │   ├── MacroViewModel.cs           # Per-macro VM: keycap state, actions, summary
+    │   ├── MainViewModel.cs            # Top-level VM: owns pipeline, pairing modal, config
     │   └── SliderViewModel.cs          # Per-slider VM: target, value, invert, order
     │
     ├── Services/
     │   ├── Interfaces/
     │   │   ├── IAudioService.cs        # WASAPI audio control contract
-    │   │   ├── ISerialService.cs       # Serial communication contract
+    │   │   ├── IMacroService.cs        # Keystroke, media, mute, utility macro contract
+    │   │   ├── ISerialService.cs       # Serial communication contract (sliders & buttons)
     │   │   ├── IConfigService.cs       # JSON config persistence contract
     │   │   ├── IStartupService.cs      # Windows Run registry key contract
     │   │   └── IProcessDiscoveryService.cs  # Process enumeration contract
     │   ├── AudioService.cs             # WASAPI implementation + IMMNotificationClient + OnSessionCreated
-    │   ├── SerialService.cs            # System.IO.Ports serial reader
+    │   ├── MacroService.cs             # Win32 SendInput, media keys, audio mute execution
+    │   ├── SerialService.cs            # System.IO.Ports serial reader with slider & button dispatch
     │   ├── ConfigService.cs            # JSON file reader/writer (atomic writes)
     │   ├── StartupService.cs           # Windows Run registry key manager
     │   ├── ProcessDiscoveryService.cs  # Audio session + window process discovery
@@ -87,7 +91,7 @@ OmniDeck/
     │
     ├── Helpers/
     │   ├── DispatcherHelper.cs         # UI thread marshalling (RunOnUI, BeginOnUI)
-    │   └── NativeMethods.cs            # Win32 P/Invoke declarations
+    │   └── NativeMethods.cs            # Win32 P/Invoke declarations (SendInput, media VKs)
     │
     └── Resources/
         └── Styles.xaml                 # Complete design system (colors, brushes, styles)
@@ -235,11 +239,17 @@ All services are registered as **singletons** in the DI container. There is exac
 - `_cts` (`CancellationTokenSource`) — cancels the read loop on disconnect
 - `_isConnected` (`volatile bool`) — connection state flag
 
-**Read loop** (`ReadLoop`): Runs on a dedicated ThreadPool thread via `Task.Run()`. Reads lines synchronously from the serial port, parses `|`-delimited integers, validates each is 0–1023, and fires `SliderValuesReceived(int[])` without nested task allocations.
+**Read loop** (`ReadLoop`): Runs on a dedicated ThreadPool thread via `Task.Run()`. Reads lines synchronously from the serial port.
+- Lines starting with `BTN:` are parsed as button events (`BTN:<pinId>:DOWN` or `BTN:<pinId>:UP`, e.g. `BTN:D2:DOWN`) and dispatched via `ButtonEventReceived(string btnId, bool isDown)`.
+- Other lines are parsed as `|`-delimited integers, validated (0–1023), and dispatched via `SliderValuesReceived(int[])`.
 
 **Hardware requirement**: OmniDeck firmware requires a native USB / HID-capable Arduino (e.g. Arduino Micro, Leonardo, Pro Micro with ATmega32U4 / SAMD architecture).
 
-**Wire protocol**: The Arduino sends newline-terminated lines of `|`-separated integers. Example: `"512|1023|0|768\n"`. Each integer represents a 10-bit ADC reading (0–1023) from one physical slider.
+**Wire protocol**:
+- **Sliders**: The Arduino sends newline-terminated lines of `|`-separated integers. Example: `"512|1023|0|768\n"`. Each integer represents a 10-bit ADC reading (0–1023) from one physical slider.
+- **Macros**: The Arduino sends discrete state changes with the exact pin identifier:
+  - `BTN:<pinId>:DOWN\n` (e.g. `BTN:D2:DOWN\n`, sent once when switch is pressed after 30ms hardware debounce)
+  - `BTN:<pinId>:UP\n` (e.g. `BTN:D2:UP\n`, sent once when switch is released)
 
 **Disconnection handling**: If the serial port throws `IOException`, `UnauthorizedAccessException`, or `InvalidOperationException` during read (and cancellation was not requested), the service sets `_isConnected = false` and fires the `Disconnected` event.
 
@@ -253,7 +263,7 @@ All services are registered as **singletons** in the DI container. There is exac
 
 **Atomic saving**: Writes JSON to `%AppData%\OmniDeck\omnideck_config.json.tmp` first, then executes an atomic move with overwrite to prevent file corruption during power cuts or abrupt process termination.
 
-**Default config**: 4 sliders (indices 0–3), slider 0 mapped to "master", others unmapped. COM3 at 9600 baud. No auto-launch, no auto-connect, not minimized.
+**Default config**: 4 sliders (indices 0–3), slider 0 mapped to "master", others unmapped. COM3 at 9600 baud. Empty macros list (only saved/registered macros are preserved). No auto-launch, no auto-connect, not minimized.
 
 ### 6.4 IProcessDiscoveryService / ProcessDiscoveryService
 
@@ -268,6 +278,15 @@ Excludes the app's own process (`"omnideck"`).
 ### 6.5 IStartupService / StartupService
 
 **Responsibility**: Manages automatic application launch on Windows logon via the current user Run registry key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Fully encapsulates registry P/Invoke and security exceptions, decoupling OS registry manipulation from ViewModels.
+
+### 6.6 IMacroService / MacroService
+
+**Responsibility**: Executes actions triggered by hardware macro switch presses:
+- **`KeyCombination`**: Parses combinations (e.g., `Ctrl+Shift+M`) and simulates keyboard input via Win32 `SendInput` in `NativeMethods`.
+- **`MediaControl`**: Dispatches standard multimedia keys (`PlayPause`, `NextTrack`, `PreviousTrack`, `VolumeUp`, `VolumeDown`, `Stop`) via Win32 `VK_MEDIA_*` virtual keys.
+- **`AudioMute`**: Calls `IAudioService.ToggleMute(target)` to toggle mute on master or specific application audio sessions.
+- **`SystemUtility`**: Triggers system-level actions such as `PrintScreen` (Win32 keybd_event) or `LockWorkStation` (user32.dll P/Invoke).
+- **`RunProgram`**: Launches external binaries, batch files, or URLs via `Process.Start`.
 
 ---
 
@@ -288,9 +307,32 @@ Excludes the app's own process (`"omnideck"`).
 | `LaunchOnStartup` | `bool` | Delegates to `_startupService` |
 | `LaunchMinimized` | `bool` | Whether to hide window on start |
 | `AutoConnect` | `bool` | Whether to connect on startup |
+| `SelectedTabIndex` | `int` | 0 for Sliders tab, 1 for Macros tab |
+| `IsSlidersTabSelected` | `bool` (derived) | `SelectedTabIndex == 0` |
+| `IsMacrosTabSelected` | `bool` (derived) | `SelectedTabIndex == 1` |
 | `Sliders` | `ObservableCollection<SliderViewModel>` | Dynamically managed slider collection |
+| `CanScrollSliders` | `bool` (derived) | `Sliders.Count > 4` (controls bank navigation `<>`) |
+| `Macros` | `ObservableCollection<MacroViewModel>` | Dynamically managed macro keys collection |
+| `SelectedMacro` | `MacroViewModel?` | Currently active macro in the detail inspector |
+| `HasMacros` | `bool` (derived) | `Macros.Count > 0` (collapses inspector pane to 0px when false) |
+| `HasSelectedMacro` | `bool` (derived) | `SelectedMacro != null` (toggles inspector vs placeholder) |
+| `IsPairingActive` | `bool` | Whether hardware pairing modal overlay is visible |
+| `PairingType` | `PairingTargetType` | `None`, `Slider`, or `Macro` |
+| `PairingTitle` | `string` | Modal title text |
+| `PairingInstruction` | `string` | User guidance text |
+| `PairingFeedback` | `string` | Real-time sensor feedback or error messages |
 | `AvailablePorts` | `ObservableCollection<string>` | Available COM ports |
 | `AvailableBaudRates` | `int[]` | `{ 9600, 19200, 38400, 57600, 115200 }` |
+
+**Hardware Pairing & Input Registration**:
+- Clicking **Add Channel** or **Add Macro** opens a modal dialog.
+- For sliders: measures baseline ADC readings and registers when an unmapped channel exceeds a $\ge 5$ unit movement delta.
+- For macros: listens for a physical button press on an unmapped digital pin.
+- Prevents generating arbitrary fake or out-of-bounds channels. Pressing `Escape` or clicking **Cancel** dismisses the modal.
+
+**Macros Tab Test Mode**:
+- Macro execution is suppressed while `IsMacrosTabSelected` is true.
+- Pressing a physical switch triggers a visual pulse on the keycap and automatically selects that key in the inspector card, allowing safe testing without triggering system actions.
 
 **Commands**:
 | Command | Action | CanExecute guard |
@@ -303,8 +345,13 @@ Excludes the app's own process (`"omnideck"`).
 | `MoveUpCommand` | Moves slider left in UI | Always (bounds-checked internally) |
 | `MoveDownCommand` | Moves slider right in UI | Always (bounds-checked internally) |
 | `RestartCommand` | Clean manual restart of audio/serial | Always |
-| `AddSliderCommand` | Dynamically creates a new slider channel | Always |
+| `AddSliderCommand` | Launches hardware fader pairing modal | Always |
 | `RemoveSliderCommand` | Removes a selected slider channel | Always |
+| `AddMacroCommand` | Launches hardware macro switch pairing modal | Always |
+| `RemoveMacroCommand` | Deletes selected macro keycap | Always |
+| `SelectMacroCommand` | Sets `SelectedMacro` | Always |
+| `CancelPairingCommand` | Aborts hardware pairing modal | Always |
+| `OpenLogsCommand` | Opens `omnideck.log` in default text editor | Always |
 
 ### 7.2 SliderViewModel
 
@@ -323,7 +370,25 @@ Represents one physical slider channel.
 
 **Serialization**: `FromConfig(SliderConfig)` and `ToConfig()` convert between the ViewModel and the persistable `SliderConfig` model.
 
-### 7.3 Base Classes
+### 7.3 MacroViewModel
+
+Represents one physical macro switch / button.
+
+| Property | Type | Purpose |
+|---|---|---|
+| `Index` | `int` | Hardware button switch index / order (M1, M2, ...) |
+| `Name` | `string` | User-defined label (e.g. "Mute Discord", "Play / Pause") |
+| `ActionType` | `MacroActionType` | `None`, `KeyCombination`, `MediaControl`, `SystemUtility`, `AudioMute`, `RunProgram` |
+| `Target` | `string` | Action parameter (e.g. "master", "PlayPause", "Ctrl+Shift+M", file path) |
+| `Arguments` | `string` | Extra arguments (e.g. CLI arguments for `RunProgram`) |
+| `IsPressed` | `bool` | Set true during physical press (triggers visual keycap flash) |
+| `IsSelected` | `bool` | True when selected in the macro inspector |
+| `FunctionSummary` | `string` (derived) | Compact 1-line summary displayed on the keycap pill |
+| `AvailableAudioTargets` | `ObservableCollection<string>` | Populated audio targets when `ActionType == AudioMute` |
+
+**Serialization**: `FromConfig(MacroConfig)` and `ToConfig()` convert between the ViewModel and the persistable `MacroConfig` model.
+
+### 7.4 Base Classes
 
 **ObservableObject**: Minimal `INotifyPropertyChanged` implementation with `SetProperty<T>()` helper that compares values and raises `PropertyChanged` only on actual change.
 
@@ -454,26 +519,32 @@ The window uses `WindowStyle="None"` with a custom chrome (`WindowChrome`) for a
 
 **Layout structure**:
 ```
-Grid (2 rows × 2 columns)
-├── Row 0: Custom Title Bar
-│   ├── Col 0: App logo + "OMNIDECK" text (left sidebar header)
-│   └── Col 1: Minimize + Close buttons (right header)
-└── Row 1: Content
-    ├── Col 0 (220px): Left Sidebar
-    │   ├── ScrollViewer
-    │   │   ├── CONNECTION section
-    │   │   │   ├── Serial Port combo + refresh button
-    │   │   │   ├── Baud Rate combo
-    │   │   │   └── Connect/Disconnect button (visibility-toggled)
-    │   │   ├── PREFERENCES section
-    │   │   │   ├── Launch on startup checkbox
-    │   │   │   ├── Start minimized checkbox
-    │   │   │   └── Auto-connect checkbox
-    │   │   └── Save Settings button
-    │   └── GitHub link (footer)
-    └── Col 1 (*): Right Workspace
-        ├── "VOLUME MIXING DECK" header + Refresh Apps button
-        └── Horizontal ItemsControl → SliderCardTemplate
+Window (Width: 716px, Height: 460px — fits exactly 4 sliders edge-to-edge)
+├── Grid (2 rows × 2 columns)
+│   ├── Row 0: Custom Title Bar
+│   │   ├── Col 0: App logo + "OMNIDECK" text (left sidebar header)
+│   │   └── Col 1: Minimize + Close buttons (right header)
+│   └── Row 1: Content
+│       ├── Col 0 (220px): Left Sidebar
+│       │   ├── ScrollViewer
+│       │   │   ├── CONNECTION section (Port, Baud, Connect/Disconnect)
+│       │   │   ├── PREFERENCES section (Startup, Minimized, Auto-connect)
+│       │   │   └── Save Settings button
+│       │   └── Footer (GitHub hyperlink + View Logs button)
+│       └── Col 1 (*): Right Workspace
+│           ├── Row 0: Workspace Header
+│           │   ├── Left: Segmented Tab Switcher [ SLIDERS ] [ MACROS ]
+│           │   └── Right: Context Actions (Scroll <>, Add Channel, Add Macro, Refresh Apps)
+│           └── Row 1: Tab Workspaces
+│               ├── SLIDERS View:
+│               │   └── Horizontal ScrollViewer → ItemsControl → SliderCardTemplate (4 visible, bank scroll past 4)
+│               └── MACROS View:
+│                   ├── Row 0: Status Banner ("Macros disabled while this page is shown" | [TEST MODE])
+│                   └── Row 1: Macro Board Grid
+│                       ├── Col 0 (*): Keycap Button WrapPanel (2 columns wide, 102×72px keycaps + "+ Add Macro")
+│                       └── Col 1 (Auto): Detail Inspector Card (218px wide, collapses to 0px if HasMacros == false)
+└── Hardware Pairing Modal (Overlay, Panel.ZIndex=1000, RowSpan=2, ColSpan=2)
+    └── Dimmed Backdrop + Animated Pairing Card (ESC or Cancel to abort)
 ```
 
 ### 14.2 SliderCardTemplate (DataTemplate)
@@ -490,7 +561,20 @@ Border (ChannelStripBorder style, hover effect)
     └── Row 4: INVERT toggle (ToggleCheckBox style)
 ```
 
-### 14.3 Value Converters (Converters.cs)
+### 14.3 Macro Templates (Keycap & Inspector)
+
+- **`MacroKeycapTemplate`**: Renders a tactile keyboard button (102×72px) with:
+  - Top header: Hardware badge (`M1`, `M2`, ...) and pin indicator (`D2`, `D3`, ...).
+  - Middle: User-friendly macro name (`Name`).
+  - Bottom pill: Function summary (`FunctionSummary`).
+  - Visual feedback: Highlights on hover, glows teal with accent border when selected, flashes bright on physical press (`IsPressed`).
+- **`MacroInspectorTemplate`**: Renders the 218px configuration pane on the right:
+  - Header: Editable name and delete bin icon (`RemoveMacroCommand`).
+  - Action selector: ComboBox binding to `MacroActionType`.
+  - Target / Argument fields: Context-sensitive inputs (audio process dropdown for `AudioMute`, hotkey combo box, or executable path).
+  - Hardware Trigger Light: Live status border displaying `READY` or `PRESSED (TEST MODE)`.
+
+### 14.4 Value Converters (Converters.cs)
 
 | Converter | Input → Output |
 |---|---|

@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Windows.Input;
 using OmniDeck.Helpers;
@@ -20,6 +20,7 @@ public class MainViewModel : ObservableObject, IDisposable
     private readonly IConfigService _configService;
     private readonly IStartupService _startupService;
     private readonly IProcessDiscoveryService _processDiscovery;
+    private readonly IMacroService _macroService;
     private readonly System.Windows.Threading.DispatcherTimer _refreshTimer;
 
     private DateTime _lastVolumeSetTime = DateTime.MinValue;
@@ -98,13 +99,133 @@ public class MainViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _autoConnect, value);
     }
 
+    private int _selectedTabIndex;
+    public int SelectedTabIndex
+    {
+        get => _selectedTabIndex;
+        set
+        {
+            if (SetProperty(ref _selectedTabIndex, value))
+            {
+                OnPropertyChanged(nameof(IsSlidersTabSelected));
+                OnPropertyChanged(nameof(IsMacrosTabSelected));
+            }
+        }
+    }
+
+    public bool IsSlidersTabSelected
+    {
+        get => SelectedTabIndex == 0;
+        set
+        {
+            if (value) SelectedTabIndex = 0;
+        }
+    }
+
+    public bool IsMacrosTabSelected
+    {
+        get => SelectedTabIndex == 1;
+        set
+        {
+            if (value) SelectedTabIndex = 1;
+        }
+    }
+
     public ObservableCollection<SliderViewModel> Sliders { get; } = new();
+    public bool CanScrollSliders => Sliders.Count > 4;
+    public ObservableCollection<MacroViewModel> Macros { get; } = new();
+    public bool HasMacros => Macros.Count > 0;
+    public bool HasSelectedMacro => SelectedMacro != null;
     public ObservableCollection<string> AvailablePorts { get; } = new();
+
+    private MacroViewModel? _selectedMacro;
+    public MacroViewModel? SelectedMacro
+    {
+        get => _selectedMacro;
+        set
+        {
+            if (_selectedMacro != null)
+                _selectedMacro.IsSelected = false;
+
+            if (SetProperty(ref _selectedMacro, value))
+            {
+                if (_selectedMacro != null)
+                    _selectedMacro.IsSelected = true;
+                OnPropertyChanged(nameof(HasSelectedMacro));
+            }
+        }
+    }
 
     public int[] AvailableBaudRates { get; } = { 9600, 19200, 38400, 57600, 115200 };
 
+    // ── Hardware Pairing / Registration State ──────────────────
+
+    public enum PairingTargetType
+    {
+        None,
+        Slider,
+        Macro
+    }
+
+    private bool _isPairingActive;
+    public bool IsPairingActive
+    {
+        get => _isPairingActive;
+        set
+        {
+            if (SetProperty(ref _isPairingActive, value))
+            {
+                OnPropertyChanged(nameof(IsPairingSlider));
+                OnPropertyChanged(nameof(IsPairingMacro));
+            }
+        }
+    }
+
+    private PairingTargetType _pairingType = PairingTargetType.None;
+    public PairingTargetType PairingType
+    {
+        get => _pairingType;
+        set
+        {
+            if (SetProperty(ref _pairingType, value))
+            {
+                OnPropertyChanged(nameof(IsPairingSlider));
+                OnPropertyChanged(nameof(IsPairingMacro));
+            }
+        }
+    }
+
+    public bool IsPairingSlider => PairingType == PairingTargetType.Slider;
+    public bool IsPairingMacro => PairingType == PairingTargetType.Macro;
+
+    private string _pairingTitle = "Register Hardware";
+    public string PairingTitle
+    {
+        get => _pairingTitle;
+        set => SetProperty(ref _pairingTitle, value);
+    }
+
+    private string _pairingInstruction = string.Empty;
+    public string PairingInstruction
+    {
+        get => _pairingInstruction;
+        set => SetProperty(ref _pairingInstruction, value);
+    }
+
+    private string _pairingFeedback = string.Empty;
+    public string PairingFeedback
+    {
+        get => _pairingFeedback;
+        set => SetProperty(ref _pairingFeedback, value);
+    }
+
+    private int[]? _pairingBaselineValues;
+
     // ── Commands ────────────────────────────────────────────────
 
+    public ICommand SelectSlidersTabCommand { get; }
+    public ICommand SelectMacrosTabCommand { get; }
+    public ICommand SelectMacroCommand { get; }
     public ICommand ConnectCommand { get; }
     public ICommand DisconnectCommand { get; }
     public ICommand RefreshPortsCommand { get; }
@@ -115,6 +236,9 @@ public class MainViewModel : ObservableObject, IDisposable
     public ICommand RestartCommand { get; }
     public ICommand AddSliderCommand { get; }
     public ICommand RemoveSliderCommand { get; }
+    public ICommand AddMacroCommand { get; }
+    public ICommand RemoveMacroCommand { get; }
+    public ICommand CancelPairingCommand { get; }
     public ICommand OpenLogsCommand { get; }
 
     // ── Constructor ─────────────────────────────────────────────
@@ -124,7 +248,8 @@ public class MainViewModel : ObservableObject, IDisposable
         IAudioService audioService,
         IConfigService configService,
         IStartupService startupService,
-        IProcessDiscoveryService processDiscovery)
+        IProcessDiscoveryService processDiscovery,
+        IMacroService macroService)
     {
         Log.Info("MainViewModel", "Constructor begin");
 
@@ -133,8 +258,16 @@ public class MainViewModel : ObservableObject, IDisposable
         _configService = configService;
         _startupService = startupService;
         _processDiscovery = processDiscovery;
+        _macroService = macroService;
 
         // Commands
+        SelectSlidersTabCommand = new RelayCommand(() => SelectedTabIndex = 0);
+        SelectMacrosTabCommand = new RelayCommand(() => SelectedTabIndex = 1);
+        SelectMacroCommand = new RelayCommand(param =>
+        {
+            if (param is MacroViewModel m)
+                SelectedMacro = m;
+        });
         ConnectCommand = new RelayCommand(OnConnect, () => !IsConnected && !string.IsNullOrEmpty(SelectedPort));
         DisconnectCommand = new RelayCommand(OnDisconnect, () => IsConnected);
         RefreshPortsCommand = new RelayCommand(OnRefreshPorts);
@@ -145,10 +278,23 @@ public class MainViewModel : ObservableObject, IDisposable
         RestartCommand = new RelayCommand(OnRestart);
         AddSliderCommand = new RelayCommand(OnAddSlider);
         RemoveSliderCommand = new RelayCommand(OnRemoveSlider);
+        AddMacroCommand = new RelayCommand(OnAddMacro);
+        RemoveMacroCommand = new RelayCommand(OnRemoveMacro);
+        CancelPairingCommand = new RelayCommand(OnCancelPairing);
         OpenLogsCommand = new RelayCommand(OnOpenLogs);
 
         // Wire events
+        Sliders.CollectionChanged += (s, e) => OnPropertyChanged(nameof(CanScrollSliders));
+        Macros.CollectionChanged += (s, e) =>
+        {
+            OnPropertyChanged(nameof(HasMacros));
+            if (Macros.Count == 0 && SelectedMacro != null)
+            {
+                SelectedMacro = null;
+            }
+        };
         _serialService.SliderValuesReceived += OnSliderValuesReceived;
+        _serialService.ButtonEventReceived += OnButtonEventReceived;
         _serialService.Disconnected += OnSerialDisconnected;
         Log.Info("MainViewModel", "Events wired");
 
@@ -202,6 +348,22 @@ public class MainViewModel : ObservableObject, IDisposable
         var mappings = string.Join(", ", Sliders.Select(s => $"CH {s.SliderIndex} -> '{s.MappedTarget}' ({s.DisplayLabel})"));
         Log.Info("MainViewModel", $"Loaded {Sliders.Count} slider(s): [{mappings}]");
 
+        Macros.Clear();
+        if (profile.Macros != null && profile.Macros.Count > 0)
+        {
+            foreach (var mCfg in profile.Macros.OrderBy(m => m.Index))
+            {
+                var mVm = MacroViewModel.FromConfig(mCfg);
+                Macros.Add(mVm);
+            }
+        }
+        Log.Info("MainViewModel", $"Loaded {Macros.Count} macro(s)");
+
+        if (SelectedMacro == null && Macros.Count > 0)
+        {
+            SelectedMacro = Macros.FirstOrDefault();
+        }
+
         OnRefreshProcesses();
     }
 
@@ -217,6 +379,7 @@ public class MainViewModel : ObservableObject, IDisposable
                 Delimiter = "|"
             },
             Sliders = Sliders.Select(s => s.ToConfig()).ToList(),
+            Macros = Macros.Select(m => m.ToConfig()).ToList(),
             LaunchOnStartup = LaunchOnStartup,
             LaunchMinimized = LaunchMinimized,
             AutoConnect = AutoConnect
@@ -225,31 +388,29 @@ public class MainViewModel : ObservableObject, IDisposable
         _configService.Save(profile);
         StatusMessage = $"Configuration saved at {DateTime.Now:HH:mm:ss}";
         var mappings = string.Join(", ", Sliders.Select(s => $"CH {s.SliderIndex} -> '{s.MappedTarget}' ({s.DisplayLabel})"));
-        Log.Info("MainViewModel", $"Config saved: Port={SelectedPort}, Baud={SelectedBaudRate}, {Sliders.Count} sliders: [{mappings}]");
+        Log.Info("MainViewModel", $"Config saved: Port={SelectedPort}, Baud={SelectedBaudRate}, {Sliders.Count} sliders: [{mappings}], {Macros.Count} macros");
     }
 
     // ── Dynamic Slider Management ───────────────────────────────
 
     private void OnAddSlider()
     {
-        int nextIndex = 0;
-        var existingIndices = Sliders.Select(s => s.SliderIndex).ToHashSet();
-        while (existingIndices.Contains(nextIndex))
+        PairingType = PairingTargetType.Slider;
+        PairingTitle = "Register Physical Slider";
+        PairingInstruction = "Move the unmapped slider on your OmniDeck to register it.";
+
+        if (!_serialService.IsConnected)
         {
-            nextIndex++;
+            PairingFeedback = "OmniDeck is disconnected. Connect to your device via the sidebar first.";
+        }
+        else
+        {
+            PairingFeedback = $"Listening on {SelectedPort}... Move any physical slider to detect.";
         }
 
-        var newSlider = new SliderViewModel
-        {
-            SliderIndex = nextIndex,
-            DisplayOrder = Sliders.Count,
-            MappedTarget = ""
-        };
-
-        PopulateTargetsForSlider(newSlider, _processDiscovery.GetAudioProcessNames());
-        Sliders.Add(newSlider);
-        Log.Info("MainViewModel", $"Added slider channel CH {nextIndex}");
-        StatusMessage = $"Added slider CH {nextIndex}";
+        _pairingBaselineValues = _lastRawValues != null ? (int[])_lastRawValues.Clone() : null;
+        IsPairingActive = true;
+        Log.Info("MainViewModel", "Started slider pairing prompt");
     }
 
     private void OnRemoveSlider(object? param)
@@ -270,6 +431,124 @@ public class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ── Dynamic Macro Management ────────────────────────────────
+
+    private void OnAddMacro()
+    {
+        PairingType = PairingTargetType.Macro;
+        PairingTitle = "Register Physical Button";
+        PairingInstruction = "Press the unmapped switch or button on your OmniDeck to register it.";
+
+        if (!_serialService.IsConnected)
+        {
+            PairingFeedback = "OmniDeck is disconnected. Connect to your device via the sidebar first.";
+        }
+        else
+        {
+            PairingFeedback = $"Listening on {SelectedPort}... Press any key switch to detect.";
+        }
+
+        IsPairingActive = true;
+        Log.Info("MainViewModel", "Started macro pairing prompt");
+    }
+
+    private void OnCancelPairing()
+    {
+        IsPairingActive = false;
+        PairingType = PairingTargetType.None;
+        _pairingBaselineValues = null;
+        Log.Info("MainViewModel", "Hardware pairing prompt canceled");
+    }
+
+    private void OnRemoveMacro(object? param)
+    {
+        if (param is not MacroViewModel macro)
+            return;
+
+        int index = Macros.IndexOf(macro);
+        if (index >= 0)
+        {
+            Macros.RemoveAt(index);
+            if (SelectedMacro == macro)
+            {
+                SelectedMacro = Macros.FirstOrDefault();
+            }
+            Log.Info("MainViewModel", $"Removed macro #{macro.Index}");
+            StatusMessage = $"Removed macro #{macro.Index + 1}";
+        }
+    }
+
+    private void OnButtonEventReceived(string btnId, bool isDown)
+    {
+        if (!isDown) return; // Trigger on press
+
+        if (IsPairingActive && PairingType == PairingTargetType.Macro)
+        {
+            DispatcherHelper.RunOnUI(() =>
+            {
+                bool alreadyExists = Macros.Any(m => string.Equals(m.Id, btnId, StringComparison.OrdinalIgnoreCase) || 
+                                                     string.Equals(m.PinName, btnId, StringComparison.OrdinalIgnoreCase));
+                if (alreadyExists)
+                {
+                    PairingFeedback = $"Button {btnId} pressed, but it is already registered. Press an unmapped button.";
+                }
+                else
+                {
+                    int nextIndex = Macros.Count > 0 ? Macros.Max(m => m.Index) + 1 : 0;
+                    var newMacro = new MacroViewModel
+                    {
+                        Id = btnId,
+                        Index = nextIndex,
+                        ActionType = MacroActionType.None
+                    };
+                    PopulateTargetsForMacro(newMacro, _processDiscovery.GetAudioProcessNames());
+                    Macros.Add(newMacro);
+                    SelectedMacro = newMacro;
+                    IsPairingActive = false;
+                    PairingType = PairingTargetType.None;
+                    StatusMessage = $"Registered hardware button {newMacro.PinName}";
+                    Log.Info("MainViewModel", $"Registered hardware button {newMacro.PinName} via button press detection");
+                }
+            });
+            return;
+        }
+
+        DispatcherHelper.RunOnUI(() =>
+        {
+            var macro = Macros.FirstOrDefault(m => string.Equals(m.Id, btnId, StringComparison.OrdinalIgnoreCase) || 
+                                                   string.Equals(m.PinName, btnId, StringComparison.OrdinalIgnoreCase));
+            if (macro == null)
+            {
+                Log.Debug("MainViewModel", $"Ignored press on unregistered button {btnId} (use Add Macro to register)");
+                return;
+            }
+
+            // Visual feedback pulse
+            macro.IsPressed = true;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(250);
+                DispatcherHelper.RunOnUI(() => macro.IsPressed = false);
+            });
+
+            // Disable macro execution while on the Macros tab to prevent accidental triggers while configuring
+            if (IsMacrosTabSelected)
+            {
+                SelectedMacro = macro;
+                Log.Debug("MainViewModel", $"Macro {macro.DisplayPin} pressed while Macros tab is active — selected in inspector (test mode)");
+                return;
+            }
+
+            // Explicitly mapped audio targets
+            var explicitTargets = Sliders
+                .Where(s => s.MappedTarget is not (null or "" or "master" or "active_window" or "active_not_mapped"))
+                .Select(s => s.MappedTarget)
+                .ToList();
+
+            _macroService.Execute(macro.ToConfig(), explicitTargets);
+        });
+    }
+
     // ── Serial ──────────────────────────────────────────────────
 
     private async void OnConnect()
@@ -286,6 +565,14 @@ public class MainViewModel : ObservableObject, IDisposable
 
             await _serialService.ConnectAsync(settings);
             IsConnected = _serialService.IsConnected;
+            if (IsConnected && IsPairingActive)
+            {
+                _pairingBaselineValues = null;
+                if (PairingType == PairingTargetType.Slider)
+                    PairingFeedback = $"Connected on {SelectedPort}. Move the physical slider to detect.";
+                else if (PairingType == PairingTargetType.Macro)
+                    PairingFeedback = $"Connected on {SelectedPort}. Press the physical button to detect.";
+            }
             StatusMessage = $"Connected to {SelectedPort}";
             Log.Info("MainViewModel", $"Connected successfully to {SelectedPort}");
         }
@@ -302,6 +589,10 @@ public class MainViewModel : ObservableObject, IDisposable
         _serialService.Disconnect();
         IsConnected = false;
         StatusMessage = "Disconnected";
+        if (IsPairingActive)
+        {
+            PairingFeedback = "OmniDeck is disconnected. Connect to your device via the sidebar first.";
+        }
     }
 
     private void OnSerialDisconnected()
@@ -311,6 +602,10 @@ public class MainViewModel : ObservableObject, IDisposable
         {
             IsConnected = false;
             StatusMessage = "Device disconnected unexpectedly";
+            if (IsPairingActive)
+            {
+                PairingFeedback = "OmniDeck is disconnected. Connect to your device via the sidebar first.";
+            }
         });
     }
 
@@ -333,6 +628,67 @@ public class MainViewModel : ObservableObject, IDisposable
         // ══ GATE ══
         if (!_serialService.IsConnected)
             return;
+
+        // Check hardware registration / pairing mode
+        if (IsPairingActive && PairingType == PairingTargetType.Slider)
+        {
+            if (_pairingBaselineValues == null || _pairingBaselineValues.Length != rawValues.Length)
+            {
+                _pairingBaselineValues = (int[])rawValues.Clone();
+            }
+            else
+            {
+                const int RegistrationThreshold = 5;
+                int unmappedMovedChannel = -1;
+                int alreadyMappedMovedChannel = -1;
+
+                for (int i = 0; i < rawValues.Length; i++)
+                {
+                    int diff = Math.Abs(rawValues[i] - _pairingBaselineValues[i]);
+                    if (diff >= RegistrationThreshold)
+                    {
+                        if (Sliders.Any(s => s.SliderIndex == i))
+                        {
+                            alreadyMappedMovedChannel = i;
+                        }
+                        else
+                        {
+                            unmappedMovedChannel = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (unmappedMovedChannel >= 0)
+                {
+                    int channelIndex = unmappedMovedChannel;
+                    DispatcherHelper.RunOnUI(() =>
+                    {
+                        var newSlider = new SliderViewModel
+                        {
+                            SliderIndex = channelIndex,
+                            DisplayOrder = Sliders.Count,
+                            MappedTarget = ""
+                        };
+                        PopulateTargetsForSlider(newSlider, _processDiscovery.GetAudioProcessNames());
+                        Sliders.Add(newSlider);
+                        IsPairingActive = false;
+                        PairingType = PairingTargetType.None;
+                        _pairingBaselineValues = null;
+                        StatusMessage = $"Registered hardware slider CH {channelIndex}";
+                        Log.Info("MainViewModel", $"Registered hardware slider CH {channelIndex} via movement detection");
+                    });
+                }
+                else if (alreadyMappedMovedChannel >= 0)
+                {
+                    int channelIndex = alreadyMappedMovedChannel;
+                    DispatcherHelper.RunOnUI(() =>
+                    {
+                        PairingFeedback = $"Slider CH {channelIndex} moved, but it is already registered. Move an unmapped slider.";
+                    });
+                }
+            }
+        }
 
         if ((DateTime.UtcNow - _lastRawValuesLogTime).TotalSeconds >= 5.0)
         {
@@ -437,7 +793,41 @@ public class MainViewModel : ObservableObject, IDisposable
             PopulateTargetsForSlider(slider, processes);
         }
 
+        foreach (var macro in Macros)
+        {
+            PopulateTargetsForMacro(macro, processes);
+        }
+
         StatusMessage = $"Found {processes.Count} audio process(es)";
+    }
+
+    private static void PopulateTargetsForMacro(MacroViewModel macro, List<string> processes)
+    {
+        var targets = macro.AvailableAudioTargets;
+        var newTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "master",
+            "active_window",
+            "active_not_mapped"
+        };
+        foreach (var name in processes)
+            newTargets.Add(name);
+
+        for (int i = targets.Count - 1; i >= 0; i--)
+        {
+            string t = targets[i];
+            if (t == "master" || t == "active_window" || t == "active_not_mapped" || t == macro.Target)
+                continue;
+
+            if (!newTargets.Contains(t))
+                targets.RemoveAt(i);
+        }
+
+        foreach (var t in newTargets)
+        {
+            if (!targets.Contains(t))
+                targets.Add(t);
+        }
     }
 
     private static void PopulateTargetsForSlider(SliderViewModel slider, List<string> processes)
@@ -609,6 +999,7 @@ public class MainViewModel : ObservableObject, IDisposable
         _refreshTimer.Stop();
 
         _serialService.SliderValuesReceived -= OnSliderValuesReceived;
+        _serialService.ButtonEventReceived -= OnButtonEventReceived;
         _serialService.Disconnected -= OnSerialDisconnected;
 
         _serialService.Dispose();

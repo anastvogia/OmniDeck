@@ -16,7 +16,7 @@ Write-Host "`n[1/4] Checking for running instances of OmniDeck..." -ForegroundCo
 $runningProcesses = Get-Process -Name "OmniDeck", "Sliders" -ErrorAction SilentlyContinue
 if ($runningProcesses) {
     Write-Host "Found running OmniDeck process(es). Stopping them..." -ForegroundColor Magenta
-    Stop-Process -Name "OmniDeck", "Sliders" -Force
+    $runningProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
 } else {
     Write-Host "No running instances found." -ForegroundColor Green

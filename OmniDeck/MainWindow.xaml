@@ -4,16 +4,21 @@
         xmlns:conv="clr-namespace:OmniDeck.Converters"
         xmlns:vm="clr-namespace:OmniDeck.ViewModels"
         Title="OmniDeck"
+        Width="716"
+        MinWidth="716"
         Height="530"
         MinHeight="530"
         MaxHeight="530"
-        MinWidth="680"
-        SizeToContent="Width"
+        SizeToContent="Manual"
         ResizeMode="CanMinimize"
         WindowStyle="None"
         Icon="icon.png"
         Background="{StaticResource BgDeepBrush}"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True">
 
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="32" 
@@ -27,6 +32,10 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
         <conv:InvertedBoolToVisibilityConverter x:Key="InvertedBoolToVisibility"/>
         <conv:StringToVisibilityConverter x:Key="StringToVisibility"/>
+        <conv:MacroActionTypeDisplayConverter x:Key="MacroActionTypeDisplay"/>
+        <conv:MediaActionDisplayConverter x:Key="MediaActionDisplay"/>
+        <conv:SystemUtilityDisplayConverter x:Key="SystemUtilityDisplay"/>
+        <conv:AudioTargetDisplayConverter x:Key="AudioTargetDisplay"/>
 
         <!-- Channel Strip Card Border Style -->
         <Style x:Key="ChannelStripBorder" TargetType="Border">
@@ -222,6 +231,452 @@
                               IsChecked="{Binding IsInverted, Mode=TwoWay}"/>
                 </Grid>
             </Border>
+        </DataTemplate>
+
+        <!-- Keyboard Keycap Button Style -->
+        <Style x:Key="KeycapButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource BgSurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Width" Value="102"/>
+            <Setter Property="Height" Value="72"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="6,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="KeycapBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <!-- Top: Badge + Pin -->
+                                    <RowDefinition Height="Auto"/>
+                                    <!-- Middle: Label -->
+                                    <RowDefinition Height="*"/>
+                                    <!-- Bottom: Function pill -->
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Top: SW Index Badge & Pin -->
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" 
+                                            x:Name="BadgeBorder"
+                                            Padding="4,1" 
+                                            CornerRadius="3" 
+                                            Background="{StaticResource AccentBadgeBrush}">
+                                        <TextBlock x:Name="BadgeText"
+                                                   Text="{Binding BadgeText}" 
+                                                   Foreground="{StaticResource AccentBrush}" 
+                                                   FontFamily="Segoe UI" 
+                                                   FontSize="9" 
+                                                   FontWeight="Bold"/>
+                                    </Border>
+
+                                    <TextBlock Grid.Column="2"
+                                               x:Name="PinText"
+                                               Text="{Binding PinName}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               FontFamily="Segoe UI"
+                                               FontSize="8.5"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <!-- Middle: Macro Name -->
+                                <TextBlock Grid.Row="1"
+                                           x:Name="LabelText"
+                                           Text="{Binding DisplayName}"
+                                           Foreground="{StaticResource TextBrush}"
+                                           FontFamily="Segoe UI"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"
+                                           Margin="0,2,0,1"/>
+
+                                <!-- Bottom: Function Summary Pill -->
+                                <Border Grid.Row="2"
+                                        x:Name="SummaryBorder"
+                                        Background="{StaticResource BgBaseBrush}"
+                                        CornerRadius="3"
+                                        Padding="4,2">
+                                    <TextBlock x:Name="SummaryText"
+                                               Text="{Binding FunctionSummary}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               FontFamily="Segoe UI"
+                                               FontSize="8.5"
+                                               FontWeight="Medium"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="KeycapBorder" Property="BorderBrush" Value="{StaticResource BorderFocusBrush}"/>
+                                <Setter TargetName="KeycapBorder" Property="Background" Value="{StaticResource BgElevatedBrush}"/>
+                            </Trigger>
+                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                <Setter TargetName="KeycapBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="KeycapBorder" Property="Background" Value="#FF23282C"/>
+                                <Setter TargetName="SummaryBorder" Property="Background" Value="{StaticResource AccentBadgeBrush}"/>
+                                <Setter TargetName="SummaryText" Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsPressed}" Value="True">
+                                <Setter TargetName="KeycapBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="KeycapBorder" Property="BorderBrush" Value="{StaticResource AccentSecBrush}"/>
+                                <Setter TargetName="BadgeBorder" Property="Background" Value="#330A0A0C"/>
+                                <Setter TargetName="BadgeText" Property="Foreground" Value="#FF0A0A0C"/>
+                                <Setter TargetName="PinText" Property="Foreground" Value="#FF0A0A0C"/>
+                                <Setter TargetName="LabelText" Property="Foreground" Value="#FF0A0A0C"/>
+                                <Setter TargetName="SummaryBorder" Property="Background" Value="#330A0A0C"/>
+                                <Setter TargetName="SummaryText" Property="Foreground" Value="#FF0A0A0C"/>
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Macro Keycap Template -->
+        <DataTemplate x:Key="MacroKeycapTemplate" DataType="{x:Type vm:MacroViewModel}">
+            <Button Style="{StaticResource KeycapButtonStyle}"
+                    Command="{Binding DataContext.SelectMacroCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding}"
+                    Margin="0,0,6,8"/>
+        </DataTemplate>
+
+        <!-- Macro Inspector / Detail Template -->
+        <DataTemplate x:Key="MacroInspectorTemplate" DataType="{x:Type vm:MacroViewModel}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Top Header -->
+                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Macro Index Badge -->
+                    <Border Grid.Column="0" 
+                            Padding="5,2" 
+                            CornerRadius="4" 
+                            Background="{StaticResource AccentBadgeBrush}">
+                        <TextBlock Text="{Binding BadgeText}" 
+                                   Foreground="{StaticResource AccentBrush}" 
+                                   FontFamily="Segoe UI" 
+                                   FontSize="10" 
+                                   FontWeight="Bold"/>
+                    </Border>
+
+                    <!-- Hardware Pin Indicator -->
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding DisplayPin}"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               FontFamily="Segoe UI"
+                               FontSize="9"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center"/>
+
+                    <!-- Delete Button (Trash Bin Icon) -->
+                    <Button Grid.Column="2"
+                            Command="{Binding DataContext.RemoveMacroCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}"
+                            ToolTip="Delete macro key"
+                            Width="20" Height="20">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource ErrorBrush}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <Path Data="M 1.5,3 L 8.5,3 M 3.5,3 L 3.5,1.5 L 6.5,1.5 L 6.5,3 M 2.2,3 L 2.8,9.5 L 7.2,9.5 L 7.8,3 M 4,4.5 L 4,8 M 6,4.5 L 6,8" 
+                              Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                              StrokeThickness="1.2" 
+                              StrokeStartLineCap="Round" 
+                              StrokeEndLineCap="Round" 
+                              StrokeLineJoin="Round"
+                              Width="9" Height="10" 
+                              Stretch="Uniform"/>
+                    </Button>
+                </Grid>
+
+                <!-- Name Field -->
+                <StackPanel Grid.Row="1" Margin="0,0,0,8">
+                    <TextBlock Text="LABEL" 
+                               Foreground="{StaticResource TextMutedBrush}"
+                               FontFamily="Segoe UI"
+                               FontSize="8.5"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,3"/>
+                    <TextBox Style="{StaticResource DarkTextBox}"
+                             Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             MaxLength="24"/>
+                </StackPanel>
+
+                <!-- Action Type Selector -->
+                <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                    <TextBlock Text="ACTION TYPE" 
+                               Foreground="{StaticResource TextMutedBrush}"
+                               FontFamily="Segoe UI"
+                               FontSize="8.5"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,3"/>
+                    <ComboBox Style="{StaticResource DarkComboBox}"
+                              ItemsSource="{Binding AvailableActionTypes}"
+                              SelectedItem="{Binding ActionType, Mode=TwoWay}"
+                              MinHeight="28">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource MacroActionTypeDisplay}}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
+                <!-- Context-sensitive Action Configuration Panel -->
+                <Border Grid.Row="3" 
+                        Background="{StaticResource BgBaseBrush}" 
+                        BorderBrush="{StaticResource BorderBrush}" 
+                        BorderThickness="1" 
+                        CornerRadius="5" 
+                        Padding="8,8"
+                        Margin="0,0,0,8">
+                    <Grid>
+                        <!-- Hotkey Settings Panel -->
+                        <StackPanel Visibility="{Binding IsHotkey, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="MODIFIERS" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4"/>
+                            <UniformGrid Columns="4" Margin="0,0,0,8">
+                                <CheckBox Style="{StaticResource ModifierToggleCheckBox}" Content="CTRL" IsChecked="{Binding Ctrl, Mode=TwoWay}" Margin="0,0,2,0"/>
+                                <CheckBox Style="{StaticResource ModifierToggleCheckBox}" Content="ALT" IsChecked="{Binding Alt, Mode=TwoWay}" Margin="1,0,1,0"/>
+                                <CheckBox Style="{StaticResource ModifierToggleCheckBox}" Content="SHFT" IsChecked="{Binding Shift, Mode=TwoWay}" Margin="1,0,1,0"/>
+                                <CheckBox Style="{StaticResource ModifierToggleCheckBox}" Content="WIN" IsChecked="{Binding Win, Mode=TwoWay}" Margin="2,0,0,0"/>
+                            </UniformGrid>
+                            <TextBlock Text="KEY (e.g. A, SPACE, ENTER)" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <TextBox Style="{StaticResource DarkTextBox}"
+                                     Text="{Binding Key, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     FontWeight="SemiBold"
+                                     CharacterCasing="Upper"/>
+                        </StackPanel>
+
+                        <!-- Function Key Settings Panel (F1 - F24) -->
+                        <StackPanel Visibility="{Binding IsFunctionKey, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="MODIFIERS (OPTIONAL)" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4"/>
+                            <UniformGrid Columns="4" Margin="0,0,0,8">
+                                <CheckBox Style="{StaticResource ModifierToggleCheckBox}" Content="CTRL" IsChecked="{Binding Ctrl, Mode=TwoWay}" Margin="0,0,2,0"/>
+                                <CheckBox Style="{StaticResource ModifierToggleCheckBox}" Content="ALT" IsChecked="{Binding Alt, Mode=TwoWay}" Margin="1,0,1,0"/>
+                                <CheckBox Style="{StaticResource ModifierToggleCheckBox}" Content="SHFT" IsChecked="{Binding Shift, Mode=TwoWay}" Margin="1,0,1,0"/>
+                                <CheckBox Style="{StaticResource ModifierToggleCheckBox}" Content="WIN" IsChecked="{Binding Win, Mode=TwoWay}" Margin="2,0,0,0"/>
+                            </UniformGrid>
+                            <TextBlock Text="FUNCTION KEY" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <ComboBox Style="{StaticResource DarkComboBox}"
+                                      ItemsSource="{Binding AvailableFunctionKeys}"
+                                      SelectedItem="{Binding Key, Mode=TwoWay}"
+                                      MinHeight="28"/>
+                        </StackPanel>
+
+                        <!-- Media Control Settings Panel -->
+                        <StackPanel Visibility="{Binding IsMediaControl, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="PLAYBACK COMMAND" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <ComboBox Style="{StaticResource DarkComboBox}"
+                                      ItemsSource="{Binding AvailableMediaActions}"
+                                      SelectedItem="{Binding Target, Mode=TwoWay}"
+                                      MinHeight="28">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource MediaActionDisplay}}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Text="Windows media command (Play/Pause, Next, Prev, Volume)."
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       TextWrapping="Wrap"
+                                       Margin="0,8,0,0"/>
+                        </StackPanel>
+
+                        <!-- System Utility Settings Panel -->
+                        <StackPanel Visibility="{Binding IsSystemUtility, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="UTILITY FUNCTION" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <ComboBox Style="{StaticResource DarkComboBox}"
+                                      ItemsSource="{Binding AvailableSystemUtilities}"
+                                      SelectedItem="{Binding Target, Mode=TwoWay}"
+                                      MinHeight="28">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource SystemUtilityDisplay}}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Text="Windows tools: PrtScn, Snipping, Calc, TaskMgr, Lock."
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       TextWrapping="Wrap"
+                                       Margin="0,8,0,0"/>
+                        </StackPanel>
+
+                        <!-- Audio Mute Settings Panel -->
+                        <StackPanel Visibility="{Binding IsAudioMute, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="AUDIO TARGET TO MUTE" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <ComboBox Style="{StaticResource DarkComboBox}"
+                                      ItemsSource="{Binding AvailableAudioTargets}"
+                                      SelectedItem="{Binding Target, Mode=TwoWay}"
+                                      MinHeight="28">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource AudioTargetDisplay}}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Text="Toggles mute state for master or specific app."
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       TextWrapping="Wrap"
+                                       Margin="0,8,0,0"/>
+                        </StackPanel>
+
+                        <!-- Launch App Settings Panel -->
+                        <StackPanel Visibility="{Binding IsLaunchApp, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="PROGRAM / EXE" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <TextBox Style="{StaticResource DarkTextBox}"
+                                     Text="{Binding Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Executable name or full path (e.g. calc.exe, notepad.exe, spotify.exe)"
+                                     Margin="0,0,0,6"/>
+                            <TextBlock Text="ARGUMENTS" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <TextBox Style="{StaticResource DarkTextBox}"
+                                     Text="{Binding Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        </StackPanel>
+
+                        <!-- Disabled Placeholder -->
+                        <Border VerticalAlignment="Center" HorizontalAlignment="Center" Padding="4"
+                                Visibility="{Binding IsNone, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="Switch Disabled" 
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="9"
+                                       FontStyle="Italic"
+                                       HorizontalAlignment="Center"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Row 4: Hardware Status / Keycap Trigger Light -->
+                <Border Grid.Row="4" 
+                        BorderThickness="1" 
+                        CornerRadius="4" 
+                        Padding="6,5"
+                        HorizontalAlignment="Stretch">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="{StaticResource BgElevatedBrush}"/>
+                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsPressed}" Value="True">
+                                    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter Property="BorderBrush" Value="{StaticResource AccentSecBrush}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Ellipse Width="6" Height="6" Margin="0,0,6,0" VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="{StaticResource TextMutedBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPressed}" Value="True">
+                                            <Setter Property="Fill" Value="#FF0A0A0C"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <TextBlock FontFamily="Segoe UI" FontSize="9" FontWeight="Bold" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="READY"/>
+                                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPressed}" Value="True">
+                                            <Setter Property="Text" Value="PRESSED (TEST MODE)"/>
+                                            <Setter Property="Foreground" Value="#FF0A0A0C"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </Grid>
         </DataTemplate>
     </Window.Resources>
 
@@ -507,73 +962,519 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Text="VOLUME MIXING DECK" 
-                           Foreground="{StaticResource TextSecBrush}"
-                           FontFamily="Segoe UI"
-                           FontSize="11"
-                           FontWeight="Bold"
-                           VerticalAlignment="Center"/>
+                <!-- Segmented Tab Navigation: [ SLIDERS ] [ MACROS ] -->
+                <Border Background="{StaticResource BgSurfaceBrush}" 
+                        BorderBrush="{StaticResource BorderBrush}" 
+                        BorderThickness="1" 
+                        CornerRadius="5" 
+                        Padding="2"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton Style="{StaticResource SegmentedTabRadioButton}"
+                                     GroupName="WorkspaceTabs"
+                                     IsChecked="{Binding IsSlidersTabSelected, Mode=TwoWay}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M 1,2 L 1,10 M 5,0 L 5,12 M 9,3 L 9,11 M 0,6 L 2,6 M 4,4 L 6,4 M 8,8 L 10,8"
+                                      Stroke="{Binding RelativeSource={RelativeSource AncestorType=RadioButton}, Path=Foreground}"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      VerticalAlignment="Center"
+                                      Margin="0,0,6,0"
+                                      Width="10" Height="12"
+                                      Stretch="Uniform"/>
+                                <TextBlock Text="SLIDERS" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </RadioButton>
+
+                        <RadioButton Style="{StaticResource SegmentedTabRadioButton}"
+                                     GroupName="WorkspaceTabs"
+                                     IsChecked="{Binding IsMacrosTabSelected, Mode=TwoWay}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M 1,1 L 9,1 L 9,9 L 1,9 Z M 3,3 L 4,3 M 6,3 L 7,3 M 3,6 L 7,6"
+                                      Stroke="{Binding RelativeSource={RelativeSource AncestorType=RadioButton}, Path=Foreground}"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      VerticalAlignment="Center"
+                                      Margin="0,0,6,0"
+                                      Width="10" Height="10"
+                                      Stretch="Uniform"/>
+                                <TextBlock Text="MACROS" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </RadioButton>
+                    </StackPanel>
+                </Border>
 
                 <!-- Workspace Header Action Buttons -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- Add Channel Button -->
-                    <Button Style="{StaticResource GhostButton}"
-                            Command="{Binding AddSliderCommand}"
-                            VerticalAlignment="Center"
-                            Margin="0,0,6,0"
-                            ToolTip="Add another slider channel strip">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Data="M 5,1 L 5,9 M 1,5 L 9,5" 
-                                  Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
-                                  StrokeThickness="1.5" 
-                                  StrokeStartLineCap="Round" 
-                                  StrokeEndLineCap="Round" 
-                                  Margin="0,0,6,0" 
-                                  VerticalAlignment="Center" 
-                                  Width="10" Height="10" 
-                                  Stretch="Uniform"/>
-                            <TextBlock Text="Add Channel" VerticalAlignment="Center" FontSize="11"/>
-                        </StackPanel>
-                    </Button>
+                <Grid Grid.Column="1" VerticalAlignment="Center">
+                    <!-- Sliders Tab Actions -->
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding IsSlidersTabSelected, Converter={StaticResource BoolToVisibility}}">
+                        <!-- Channel Bank Scroll Navigation (◀ / ▶) -->
+                        <Border Background="{StaticResource BgSurfaceBrush}" 
+                                BorderBrush="{StaticResource BorderBrush}" 
+                                BorderThickness="1" 
+                                CornerRadius="4"
+                                Margin="0,0,6,0"
+                                Visibility="{Binding CanScrollSliders, Converter={StaticResource BoolToVisibility}}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource IconButton}"
+                                        Click="ScrollSlidersLeft_Click"
+                                        ToolTip="Scroll channels left (or use mouse wheel)"
+                                        Width="24" Height="24">
+                                    <Path Data="M 4.5,1.5 L 1.5,4.5 L 4.5,7.5" 
+                                          Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                          StrokeThickness="1.5" 
+                                          StrokeStartLineCap="Round" 
+                                          StrokeEndLineCap="Round" 
+                                          Width="4" Height="7" 
+                                          Stretch="Uniform"/>
+                                </Button>
+                                <Border Width="1" Background="{StaticResource BorderBrush}"/>
+                                <Button Style="{StaticResource IconButton}"
+                                        Click="ScrollSlidersRight_Click"
+                                        ToolTip="Scroll channels right (or use mouse wheel)"
+                                        Width="24" Height="24">
+                                    <Path Data="M 1.5,1.5 L 4.5,4.5 L 1.5,7.5" 
+                                          Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                          StrokeThickness="1.5" 
+                                          StrokeStartLineCap="Round" 
+                                          StrokeEndLineCap="Round" 
+                                          Width="4" Height="7" 
+                                          Stretch="Uniform"/>
+                                </Button>
+                            </StackPanel>
+                        </Border>
 
-                    <!-- Refresh Apps Button -->
-                    <Button Style="{StaticResource GhostButton}"
-                            Command="{Binding RefreshProcessesCommand}"
-                            VerticalAlignment="Center"
-                            ToolTip="Refresh list of audio applications">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Data="M 1,5 A 4,4 0 1,1 2,8 M 2,3 L 2,6 L 5,6" 
-                                  Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
-                                  StrokeThickness="1.5" 
-                                  StrokeStartLineCap="Round" 
-                                  StrokeEndLineCap="Round" 
-                                  Margin="0,0,6,0" 
-                                  VerticalAlignment="Center" 
-                                  Width="10" Height="10" 
-                                  Stretch="Uniform"/>
-                            <TextBlock Text="Refresh Apps" VerticalAlignment="Center" FontSize="11"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
+                        <!-- Add Channel Button -->
+                        <Button Style="{StaticResource GhostButton}"
+                                Command="{Binding AddSliderCommand}"
+                                VerticalAlignment="Center"
+                                Margin="0,0,6,0"
+                                ToolTip="Add another slider channel strip">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M 5,1 L 5,9 M 1,5 L 9,5" 
+                                      Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                      StrokeThickness="1.5" 
+                                      StrokeStartLineCap="Round" 
+                                      StrokeEndLineCap="Round" 
+                                      Margin="0,0,6,0" 
+                                      VerticalAlignment="Center" 
+                                      Width="10" Height="10" 
+                                      Stretch="Uniform"/>
+                                <TextBlock Text="Add Channel" VerticalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Refresh Apps Button -->
+                        <Button Style="{StaticResource GhostButton}"
+                                Command="{Binding RefreshProcessesCommand}"
+                                VerticalAlignment="Center"
+                                ToolTip="Refresh list of audio applications">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M 1,5 A 4,4 0 1,1 2,8 M 2,3 L 2,6 L 5,6" 
+                                      Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                      StrokeThickness="1.5" 
+                                      StrokeStartLineCap="Round" 
+                                      StrokeEndLineCap="Round" 
+                                      Margin="0,0,6,0" 
+                                      VerticalAlignment="Center" 
+                                      Width="10" Height="10" 
+                                      Stretch="Uniform"/>
+                                <TextBlock Text="Refresh Apps" VerticalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Macros Tab Actions -->
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding IsMacrosTabSelected, Converter={StaticResource BoolToVisibility}}">
+                        <!-- Add Macro Button -->
+                        <Button Style="{StaticResource GhostButton}"
+                                Command="{Binding AddMacroCommand}"
+                                VerticalAlignment="Center"
+                                Margin="0,0,6,0"
+                                ToolTip="Add another macro switch">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M 5,1 L 5,9 M 1,5 L 9,5" 
+                                      Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                      StrokeThickness="1.5" 
+                                      StrokeStartLineCap="Round" 
+                                      StrokeEndLineCap="Round" 
+                                      Margin="0,0,6,0" 
+                                      VerticalAlignment="Center" 
+                                      Width="10" Height="10" 
+                                      Stretch="Uniform"/>
+                                <TextBlock Text="Add Macro" VerticalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Refresh Apps Button (for Mute targets) -->
+                        <Button Style="{StaticResource GhostButton}"
+                                Command="{Binding RefreshProcessesCommand}"
+                                VerticalAlignment="Center"
+                                ToolTip="Refresh list of audio applications">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M 1,5 A 4,4 0 1,1 2,8 M 2,3 L 2,6 L 5,6" 
+                                      Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" 
+                                      StrokeThickness="1.5" 
+                                      StrokeStartLineCap="Round" 
+                                      StrokeEndLineCap="Round" 
+                                      Margin="0,0,6,0" 
+                                      VerticalAlignment="Center" 
+                                      Width="10" Height="10" 
+                                      Stretch="Uniform"/>
+                                <TextBlock Text="Refresh Apps" VerticalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
             </Grid>
 
-            <!-- Horizontal Mixing Board Area (Auto-scrolling with Scaling Window size) -->
+            <!-- Sliders Mixing Board Area (Left-aligned, mouse-wheel horizontal scrolling, dark scrollbar) -->
             <ScrollViewer Grid.Row="1" 
+                          x:Name="SlidersScrollViewer"
+                          Style="{StaticResource DarkScrollViewer}"
+                          PreviewMouseWheel="SlidersScrollViewer_PreviewMouseWheel"
                           VerticalScrollBarVisibility="Disabled" 
                           HorizontalScrollBarVisibility="Auto"
                           HorizontalAlignment="Stretch"
-                          VerticalAlignment="Stretch">
+                          VerticalAlignment="Stretch"
+                          Visibility="{Binding IsSlidersTabSelected, Converter={StaticResource BoolToVisibility}}">
                 <ItemsControl ItemsSource="{Binding Sliders}"
                               ItemTemplate="{StaticResource SliderCardTemplate}"
                               VerticalAlignment="Stretch"
-                              HorizontalAlignment="Center">
+                              HorizontalAlignment="Left">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Stretch"/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                 </ItemsControl>
             </ScrollViewer>
+
+            <!-- Macros Management Board Area (Keyboard Grid + Detail Inspector) -->
+            <Grid Grid.Row="1" Visibility="{Binding IsMacrosTabSelected, Converter={StaticResource BoolToVisibility}}">
+                <Grid.RowDefinitions>
+                    <!-- Disabled / Test Mode Notice Banner -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Keypad Grid + Detail Inspector -->
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Status Banner: Macro execution notice -->
+                <Border Grid.Row="0" 
+                        Background="{StaticResource BgSurfaceBrush}" 
+                        BorderBrush="{StaticResource BorderBrush}" 
+                        BorderThickness="1" 
+                        CornerRadius="4" 
+                        Padding="8,5" 
+                        Margin="0,0,0,8">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M 6.5,1.5 C 3.74,1.5 1.5,3.74 1.5,6.5 C 1.5,9.26 3.74,11.5 6.5,11.5 C 9.26,11.5 11.5,9.26 11.5,6.5 C 11.5,3.74 9.26,1.5 6.5,1.5 Z M 6.5,4 L 6.5,6.5 M 6.5,8.5 L 6.5,8.6" 
+                                  Stroke="{StaticResource TextMutedBrush}" 
+                                  StrokeThickness="1.3" 
+                                  StrokeStartLineCap="Round" 
+                                  StrokeEndLineCap="Round" 
+                                  Width="13" Height="13" 
+                                  VerticalAlignment="Center" 
+                                  Margin="0,0,7,0"/>
+                            <TextBlock Text="Macros disabled while this page is shown" 
+                                       Foreground="{StaticResource TextMutedBrush}" 
+                                       FontFamily="Segoe UI" 
+                                       FontSize="11" 
+                                       FontWeight="Medium" 
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <Border HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Background="{StaticResource BgBaseBrush}"
+                                CornerRadius="3"
+                                Padding="5,2">
+                            <TextBlock Text="TEST MODE"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontFamily="Segoe UI"
+                                       FontSize="9"
+                                       FontWeight="Bold"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Board Content: Left Keypad + Right Inspector -->
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <!-- Left Column: Keypad Button Grid -->
+                        <ColumnDefinition Width="*"/>
+                        <!-- Right Column: Detail Inspector Card (collapses when no macros) -->
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left: Scrollable Keyboard Grid -->
+                    <ScrollViewer Grid.Column="0" 
+                                  VerticalScrollBarVisibility="Auto" 
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ScrollViewer.Style>
+                            <Style TargetType="ScrollViewer" BasedOn="{StaticResource DarkScrollViewer}">
+                                <Setter Property="Margin" Value="0,0,8,0"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasMacros}" Value="False">
+                                        <Setter Property="Margin" Value="0"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ScrollViewer.Style>
+                        <StackPanel Orientation="Vertical">
+                            <!-- Macro Keycaps -->
+                            <ItemsControl ItemsSource="{Binding Macros}" 
+                                          ItemTemplate="{StaticResource MacroKeycapTemplate}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+
+                            <!-- Quick Add Macro Button -->
+                            <Button Style="{StaticResource GhostButton}"
+                                    Command="{Binding AddMacroCommand}"
+                                    Width="102" Height="72"
+                                    Margin="0,0,6,8"
+                                    HorizontalAlignment="Left"
+                                    ToolTip="Add new macro">
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Path Data="M 5,1 L 5,9 M 1,5 L 9,5" 
+                                          Stroke="{StaticResource TextMutedBrush}" 
+                                          StrokeThickness="1.5" 
+                                          StrokeStartLineCap="Round" 
+                                          StrokeEndLineCap="Round" 
+                                          HorizontalAlignment="Center"
+                                          Margin="0,0,0,4" 
+                                          Width="10" Height="10" 
+                                          Stretch="Uniform"/>
+                                    <TextBlock Text="+ Add Macro" 
+                                               FontSize="10" 
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextMutedBrush}" 
+                                               HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Right: Macro Inspector Panel (completely collapses when HasMacros is false) -->
+                    <Border Grid.Column="1" 
+                            Width="218"
+                            Background="{StaticResource BgSurfaceBrush}" 
+                            BorderBrush="{StaticResource BorderBrush}" 
+                            BorderThickness="1" 
+                            CornerRadius="6" 
+                            Padding="10,8" 
+                            VerticalAlignment="Stretch"
+                            Visibility="{Binding HasMacros, Converter={StaticResource BoolToVisibility}}">
+                        <Grid>
+                            <!-- Placeholder when no macro is selected -->
+                            <TextBlock Text="Select a macro key to configure" 
+                                       Foreground="{StaticResource TextMutedBrush}" 
+                                       FontFamily="Segoe UI" 
+                                       FontSize="11" 
+                                       FontStyle="Italic" 
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center" 
+                                       Visibility="{Binding HasSelectedMacro, Converter={StaticResource InvertedBoolToVisibility}}"/>
+
+                            <!-- Inspector Content -->
+                            <ContentControl Content="{Binding SelectedMacro}" 
+                                            ContentTemplate="{StaticResource MacroInspectorTemplate}"
+                                            Visibility="{Binding HasSelectedMacro, Converter={StaticResource BoolToVisibility}}"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!-- ══════════════════════════════════════════════════════════
+             HARDWARE INPUT PAIRING / REGISTRATION MODAL OVERLAY
+             ══════════════════════════════════════════════════════════ -->
+        <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2"
+              Visibility="{Binding IsPairingActive, Converter={StaticResource BoolToVisibility}}"
+              Panel.ZIndex="1000">
+            <!-- Dimming Backdrop -->
+            <Border Background="#D00B0B0E"/>
+
+            <!-- Dialog Modal Card -->
+            <Border Width="420" 
+                    Background="{StaticResource BgSurfaceBrush}" 
+                    BorderBrush="{StaticResource BorderBrush}" 
+                    BorderThickness="1" 
+                    CornerRadius="8" 
+                    Padding="24,20"
+                    HorizontalAlignment="Center" 
+                    VerticalAlignment="Center">
+                <Border.Effect>
+                    <DropShadowEffect Color="#000000" BlurRadius="28" ShadowDepth="6" Opacity="0.6"/>
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/> <!-- Header with Icon + Title -->
+                        <RowDefinition Height="Auto"/> <!-- Main Instruction -->
+                        <RowDefinition Height="Auto"/> <!-- Status / Listening Feedback Box -->
+                        <RowDefinition Height="Auto"/> <!-- Action Footer -->
+                    </Grid.RowDefinitions>
+
+                    <!-- Header -->
+                    <Grid Grid.Row="0" Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Hardware Icon Badge -->
+                        <Border Grid.Column="0" 
+                                Width="40" Height="40" 
+                                CornerRadius="6" 
+                                Background="{StaticResource AccentBadgeBrush}" 
+                                BorderBrush="{StaticResource AccentBrush}" 
+                                BorderThickness="1"
+                                Margin="0,0,12,0"
+                                VerticalAlignment="Center">
+                            <Grid>
+                                <!-- Slider Icon -->
+                                <Path Data="M 1,4 L 11,4 M 6,1 L 6,11 M 3,7 L 9,7"
+                                      Visibility="{Binding IsPairingSlider, Converter={StaticResource BoolToVisibility}}"
+                                      Stroke="{StaticResource AccentBrush}"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Width="14" Height="14"
+                                      Stretch="Uniform"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"/>
+                                <!-- Macro Key Icon -->
+                                <Path Data="M 2,2 L 10,2 L 10,10 L 2,10 Z M 4,5 L 8,5 M 6,3 L 6,7"
+                                      Visibility="{Binding IsPairingMacro, Converter={StaticResource BoolToVisibility}}"
+                                      Stroke="{StaticResource AccentBrush}"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Width="14" Height="14"
+                                      Stretch="Uniform"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Title & Subtitle -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding PairingTitle}" 
+                                       FontFamily="Segoe UI" 
+                                       FontSize="14.5" 
+                                       FontWeight="Bold" 
+                                       Foreground="{StaticResource TextBrush}"/>
+                            <TextBlock Text="Hardware Pairing" 
+                                       FontFamily="Segoe UI" 
+                                       FontSize="11" 
+                                       FontWeight="SemiBold" 
+                                       Foreground="{StaticResource AccentBrush}"/>
+                        </StackPanel>
+
+                        <!-- Close / Dismiss X Button -->
+                        <Button Grid.Column="2" 
+                                Style="{StaticResource IconButton}"
+                                Command="{Binding CancelPairingCommand}"
+                                ToolTip="Cancel registration (Esc)"
+                                Width="26" Height="26"
+                                VerticalAlignment="Top">
+                            <Path Data="M 2,2 L 8,8 M 8,2 L 2,8"
+                                  Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}"
+                                  StrokeThickness="1.5"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  Width="9" Height="9"
+                                  Stretch="Uniform"/>
+                        </Button>
+                    </Grid>
+
+                    <!-- Instruction Text -->
+                    <TextBlock Grid.Row="1" 
+                               Text="{Binding PairingInstruction}" 
+                               FontFamily="Segoe UI" 
+                               FontSize="12.5" 
+                               Foreground="{StaticResource TextBrush}" 
+                               TextWrapping="Wrap" 
+                               Margin="0,0,0,14"/>
+
+                    <!-- Realtime Status Feedback Box -->
+                    <Border Grid.Row="2" 
+                            Background="{StaticResource BgBaseBrush}" 
+                            BorderBrush="{StaticResource BorderBrush}" 
+                            BorderThickness="1" 
+                            CornerRadius="6" 
+                            Padding="12,10" 
+                            Margin="0,0,0,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- Pulsing Indicator Dot -->
+                            <Ellipse Grid.Column="0" 
+                                     Width="9" Height="9" 
+                                     Margin="0,0,10,0" 
+                                     VerticalAlignment="Center">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="{StaticResource AccentBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsConnected}" Value="False">
+                                                <Setter Property="Fill" Value="{StaticResource WarningBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Grid.Column="1" 
+                                       Text="{Binding PairingFeedback}" 
+                                       FontFamily="Segoe UI" 
+                                       FontSize="12" 
+                                       FontWeight="Medium"
+                                       Foreground="{StaticResource TextBrush}" 
+                                       TextWrapping="Wrap" 
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Footer Action Bar -->
+                    <Grid Grid.Row="3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- If Disconnected: Quick Connect Button -->
+                        <Button Grid.Column="0"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding ConnectCommand}"
+                                Visibility="{Binding IsConnected, Converter={StaticResource InvertedBoolToVisibility}}"
+                                HorizontalAlignment="Left"
+                                Padding="14,6"
+                                Height="30">
+                            <TextBlock Text="Connect Device" FontSize="11" FontWeight="SemiBold"/>
+                        </Button>
+
+                        <!-- Cancel Button -->
+                        <Button Grid.Column="1" 
+                                Style="{StaticResource GhostButton}"
+                                Command="{Binding CancelPairingCommand}"
+                                Padding="16,6" 
+                                Height="30"
+                                HorizontalAlignment="Right">
+                            <TextBlock Text="Cancel" FontSize="11" FontWeight="SemiBold"/>
+                        </Button>
+                    </Grid>
+                </Grid>
+            </Border>
         </Grid>
     </Grid>
 </Window>
