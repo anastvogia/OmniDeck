@@ -100,12 +100,6 @@ OmniDeck is completely agnostic regarding the physical enclosure and build — a
     - Sliders: 3-pin hookup per slider (VCC, GND, and Wiper pin to analog inputs A0–A3).
     - Switches: 2-pin hookup per switch (One pin to Digital pin D2–D5, other pin to GND using internal `INPUT_PULLUP`).
 
-<p align=center>
-  <img src=assets/deck_photo.jpg alt=3D Printed OmniDeck width=600 />
-  <br />
-  <em>My custom 3D-printed OmniDeck hardware enclosure</em>
-</p>
-
 ---
 
 ## 🔌 Arduino Firmware
